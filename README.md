@@ -1,6 +1,6 @@
 # DropCaptureList
 
-Shared household list. A Windows app captures highlighted Excel cells (one cell = one record). A React web app shows the household mark and (soon) the shared list.
+Shared household list. A Windows app captures highlighted Excel cells (one cell = one record). The **mobile web app is React** (Vite) so phones can check items off in the browser. That is the stack to keep using.
 
 Open `DropCaptureList.slnx` in Visual Studio.
 
@@ -18,15 +18,15 @@ Open `DropCaptureList.slnx` in Visual Studio.
 
 Word and Notepad line capture are not in this build.
 
-## Run the web app (household mark)
+## Run the mobile web app
 
 1. Copy `src/api/appsettings.Local.json.example` to `src/api/appsettings.Local.json` and fill in the same SQL values you use for the Windows app (that file is gitignored).
 2. Run `database/06_AddTenantMotto.sql` if you have not already.
 3. `dotnet run --project src/api --launch-profile http`
 4. In another terminal: `npm install` then `npm run dev` in `src/web`
-5. Open http://localhost:5173
+5. Open http://localhost:5173 on the PC or phone on the same network (use the Vite URL). Sign in with **email** and **household name**. Checking a box marks that item complete for everyone in the household.
 
-Set a motto in Windows Admin, then refresh the browser.
+Set a motto in Windows Admin; it shows under the household name on the web. Capture still happens in Excel on Windows.
 
 ## Local SQL settings (keep out of git)
 
@@ -56,7 +56,7 @@ App admin is `Users.IsAppAdmin`. Household role is `Memberships.Role`. Those are
 
 ## Not built yet
 
-- Shared checkbox list and live updates
+- Live updates while another person checks a box (refresh for now)
 - Web admin
 - Application Insights
 - Word / Notepad capture
