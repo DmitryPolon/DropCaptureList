@@ -1,34 +1,45 @@
 # DropCaptureList
 
-Shared household list. A Windows app captures highlighted Excel cells (one cell = one record). A React mobile web app will check items off together. That web app is not in this repository yet.
+Shared household list. A Windows app captures highlighted Excel cells (one cell = one record). A React web app shows the household mark and (soon) the shared list.
 
-Open `DropCaptureList.slnx` in Visual Studio, or `src/windows/DropCaptureList.Windows/DropCaptureList.Windows.csproj`.
+Open `DropCaptureList.slnx` in Visual Studio.
 
 ## What works today
 
-- WPF on .NET 9.
+- WPF on .NET 9 for Excel capture.
 - Sign in with **email** and **household name** (not nickname). Nickname is the display name on a household.
 - Session is remembered on this PC (DPAPI). **Sign out** clears it.
 - Azure SQL with Microsoft Entra (no SQL password in the app). First Continue may show a Windows account picker; later launches reuse a cached token until sign-out.
 - Excel capture: highlight cells, then **Capture selected Excel cells**. Empty cells are skipped. Merged ranges count as one record.
 - **Delete selected** removes a row that should never have been captured.
 - **Clear list** marks remaining items completed. They stay in the database and show gray. History reporting is later.
-- Temporary WPF admin (app admins only): add a user, create a household, remove someone from a household. The long-term admin UI is the React app.
+- Temporary WPF **Admin** (app admins only): add a user, create a household, set a household motto, remove someone from a household. Full admin will move to the web later.
+- Each household can have an optional **motto**. Edit it in Windows Admin. The React app displays the letter mark and motto. Custom image logos are not in this build.
 
 Word and Notepad line capture are not in this build.
 
+## Run the web app (household mark)
+
+1. Copy `src/api/appsettings.Local.json.example` to `src/api/appsettings.Local.json` and fill in the same SQL values you use for the Windows app (that file is gitignored).
+2. Run `database/06_AddTenantMotto.sql` if you have not already.
+3. `dotnet run --project src/api --launch-profile http`
+4. In another terminal: `npm install` then `npm run dev` in `src/web`
+5. Open http://localhost:5173
+
+Set a motto in Windows Admin, then refresh the browser.
+
 ## Local SQL settings (keep out of git)
 
-Copy `src/windows/DropCaptureList.Windows/appsettings.Local.json.example` to `appsettings.Local.json` (same folder) on your machine only. Fill in:
+Copy `appsettings.Local.json.example` to `appsettings.Local.json` next to the Windows project and the API project, on your machine only. Fill in:
 
 - `Server` — Azure SQL host
 - `Database` — database name
 - `UserId` — Entra email used to get a token
 - `TenantId` — Entra tenant id (so Hotmail is not sent to the wrong Microsoft tenant)
 
-`appsettings.Local.json` is gitignored. Never commit real server names, database names, emails, or tenant ids. `appsettings.json` in git stays empty.
+Never commit real server names, database names, emails, or tenant ids.
 
-Until that file is present, the app can still run against a local JSON store.
+Until the Windows local file is present, the Windows app can still run against a local JSON store.
 
 ## Database scripts
 
@@ -37,24 +48,26 @@ Create the Azure SQL server and database in the portal (or pass names into `data
 1. `database/02_CreateTables.sql`
 2. `database/04_AddUserEmailAndAppAdmin.sql` if the database predates email / app-admin columns
 3. `database/05_AddItemDisplayFormat.sql` if the database predates Excel layout columns
+4. `database/06_AddTenantMotto.sql` if the database predates household mottos
 
 `database/01_CreateDatabase.sql` is only for optional LocalDB (`sqlcmd -v DatabaseName=...`). `database/03_SeedDev.sql` is sample `mom` / `dad` / `Home` data for local use — do not run it against a shared production database.
 
 App admin is `Users.IsAppAdmin`. Household role is `Memberships.Role`. Those are different.
 
-## Not in this repo
+## Not built yet
 
-- React list and admin
-- REST API
+- Shared checkbox list and live updates
+- Web admin
 - Application Insights
 - Word / Notepad capture
 - Weekly history report UI
 
-See [PLAN.md](PLAN.md) for the longer product sketch. Some items there (Azure SQL) are already started in the Windows app.
+See [PLAN.md](PLAN.md) for the longer product sketch.
 
 ## Requirements
 
 - Windows
 - .NET 9 SDK
+- Node.js 22+ for the web app
 - Excel for capture
 - An Azure SQL database with Entra-only auth, and your Entra user as a SQL admin or contained user

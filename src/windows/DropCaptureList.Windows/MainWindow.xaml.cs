@@ -19,6 +19,7 @@ public partial class MainWindow : Window
             var admin = new AdminWindow(new AdminViewModel(viewModel.Identity));
             admin.Owner = this;
             admin.ShowDialog();
+            ViewModel.LoadFromStore();
         };
     }
 

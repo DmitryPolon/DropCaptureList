@@ -83,7 +83,7 @@ public sealed class SqlIdentityService : IIdentityService
         using var connection = _connections.Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT t.TenantId, t.Name
+            SELECT t.TenantId, t.Name, t.Motto
             FROM dbo.Tenants t
             INNER JOIN dbo.Memberships m ON m.TenantId = t.TenantId
             WHERE m.UserId = @userId
@@ -95,7 +95,12 @@ public sealed class SqlIdentityService : IIdentityService
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
-            list.Add(new LocalTenant { Id = reader.GetGuid(0), Name = reader.GetString(1) });
+            list.Add(new LocalTenant
+            {
+                Id = reader.GetGuid(0),
+                Name = reader.GetString(1),
+                Motto = reader.IsDBNull(2) ? string.Empty : reader.GetString(2)
+            });
         }
 
         return list;
@@ -214,9 +219,10 @@ public sealed class SqlIdentityService : IIdentityService
         }
     }
 
-    public void CreateHousehold(string name)
+    public void CreateHousehold(string name, string? motto = null)
     {
         name = name.Trim();
+        motto = NormalizeMotto(motto);
         if (string.IsNullOrWhiteSpace(name))
         {
             throw new InvalidOperationException("Enter a household name.");
@@ -224,9 +230,40 @@ public sealed class SqlIdentityService : IIdentityService
 
         using var connection = _connections.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO dbo.Tenants (TenantId, Name) VALUES (NEWID(), @name);";
+        command.CommandText = "INSERT INTO dbo.Tenants (TenantId, Name, Motto) VALUES (NEWID(), @name, @motto);";
         command.Parameters.AddWithValue("@name", name);
+        command.Parameters.AddWithValue("@motto", string.IsNullOrEmpty(motto) ? DBNull.Value : motto);
         command.ExecuteNonQuery();
+    }
+
+    public void SetHouseholdMotto(string householdName, string motto)
+    {
+        householdName = householdName.Trim();
+        motto = NormalizeMotto(motto);
+        if (string.IsNullOrWhiteSpace(householdName))
+        {
+            throw new InvalidOperationException("Enter the household name.");
+        }
+
+        using var connection = _connections.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE dbo.Tenants
+            SET Motto = @motto
+            WHERE LOWER(Name) = LOWER(@name);
+            """;
+        command.Parameters.AddWithValue("@name", householdName);
+        command.Parameters.AddWithValue("@motto", string.IsNullOrEmpty(motto) ? DBNull.Value : motto);
+        if (command.ExecuteNonQuery() == 0)
+        {
+            throw new InvalidOperationException("Unknown household.");
+        }
+    }
+
+    private static string NormalizeMotto(string? motto)
+    {
+        motto = motto?.Trim() ?? string.Empty;
+        return motto.Length <= 120 ? motto : motto[..120];
     }
 
     public void RemoveFromHousehold(Guid userId, string householdName)

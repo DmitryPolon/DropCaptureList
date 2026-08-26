@@ -12,6 +12,7 @@ public sealed class LocalTenant
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string Motto { get; set; } = string.Empty;
 }
 
 public sealed class LocalMembership

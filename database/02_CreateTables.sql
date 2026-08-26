@@ -26,6 +26,7 @@ BEGIN
     (
         [TenantId]   UNIQUEIDENTIFIER NOT NULL CONSTRAINT [PK_Tenants] PRIMARY KEY DEFAULT NEWSEQUENTIALID(),
         [Name]       NVARCHAR(100)    NOT NULL,
+        [Motto]      NVARCHAR(120)    NULL,
         [CreatedAt]  DATETIMEOFFSET(7) NOT NULL CONSTRAINT [DF_Tenants_CreatedAt] DEFAULT SYSDATETIMEOFFSET(),
         CONSTRAINT [UQ_Tenants_Name] UNIQUE ([Name])
     );

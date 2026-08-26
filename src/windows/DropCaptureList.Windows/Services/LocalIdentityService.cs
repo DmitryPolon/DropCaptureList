@@ -118,9 +118,15 @@ public sealed class LocalIdentityService : IIdentityService
         _store.Save(db);
     }
 
-    public void CreateHousehold(string name)
+    public void CreateHousehold(string name, string? motto = null)
     {
         name = name.Trim();
+        motto = (motto ?? string.Empty).Trim();
+        if (motto.Length > 120)
+        {
+            motto = motto[..120];
+        }
+
         if (string.IsNullOrWhiteSpace(name))
         {
             throw new InvalidOperationException("Enter a household name.");
@@ -132,7 +138,24 @@ public sealed class LocalIdentityService : IIdentityService
             throw new InvalidOperationException("That household already exists.");
         }
 
-        db.Tenants.Add(new LocalTenant { Id = Guid.NewGuid(), Name = name });
+        db.Tenants.Add(new LocalTenant { Id = Guid.NewGuid(), Name = name, Motto = motto });
+        _store.Save(db);
+    }
+
+    public void SetHouseholdMotto(string householdName, string motto)
+    {
+        householdName = householdName.Trim();
+        motto = (motto ?? string.Empty).Trim();
+        if (motto.Length > 120)
+        {
+            motto = motto[..120];
+        }
+
+        var db = _store.Load();
+        var tenant = db.Tenants.FirstOrDefault(t =>
+            string.Equals(t.Name, householdName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Unknown household.");
+        tenant.Motto = motto;
         _store.Save(db);
     }
 

@@ -208,6 +208,7 @@ public sealed class MainViewModel : ViewModelBase
         ShowHouseholdSwitcher = Households.Count > 1;
         _selectedHousehold = Households.FirstOrDefault(h => h.Id == _session.TenantId);
         RaisePropertyChanged(nameof(SelectedHousehold));
+        RaisePropertyChanged(nameof(HouseholdLabel));
     }
 
     private void ReloadItems()

@@ -13,6 +13,9 @@ public sealed class AdminViewModel : ViewModelBase
     private string _newHousehold = string.Empty;
     private bool _newIsAppAdmin;
     private string _newHouseholdName = string.Empty;
+    private string _newHouseholdMotto = string.Empty;
+    private string _mottoHouseholdName = string.Empty;
+    private string _mottoText = string.Empty;
     private string _removeHouseholdName = string.Empty;
     private AdminUserRow? _selectedUser;
     private string _statusMessage = "Full admin (reports, users) will live on the web app. This window is a temporary helper.";
@@ -23,6 +26,7 @@ public sealed class AdminViewModel : ViewModelBase
         Users = new ObservableCollection<AdminUserRow>();
         AddUserCommand = new RelayCommand(AddUser);
         CreateHouseholdCommand = new RelayCommand(CreateHousehold);
+        SaveMottoCommand = new RelayCommand(SaveMotto);
         RemoveFromHouseholdCommand = new RelayCommand(RemoveFromHousehold);
         Reload();
     }
@@ -59,6 +63,24 @@ public sealed class AdminViewModel : ViewModelBase
         set => SetProperty(ref _newHouseholdName, value);
     }
 
+    public string NewHouseholdMotto
+    {
+        get => _newHouseholdMotto;
+        set => SetProperty(ref _newHouseholdMotto, value);
+    }
+
+    public string MottoHouseholdName
+    {
+        get => _mottoHouseholdName;
+        set => SetProperty(ref _mottoHouseholdName, value);
+    }
+
+    public string MottoText
+    {
+        get => _mottoText;
+        set => SetProperty(ref _mottoText, value);
+    }
+
     public AdminUserRow? SelectedUser
     {
         get => _selectedUser;
@@ -79,6 +101,7 @@ public sealed class AdminViewModel : ViewModelBase
 
     public RelayCommand AddUserCommand { get; }
     public RelayCommand CreateHouseholdCommand { get; }
+    public RelayCommand SaveMottoCommand { get; }
     public RelayCommand RemoveFromHouseholdCommand { get; }
 
     private void Reload()
@@ -111,9 +134,24 @@ public sealed class AdminViewModel : ViewModelBase
     {
         try
         {
-            _identity.CreateHousehold(NewHouseholdName);
+            _identity.CreateHousehold(NewHouseholdName, NewHouseholdMotto);
             StatusMessage = "Household created.";
             NewHouseholdName = string.Empty;
+            NewHouseholdMotto = string.Empty;
+            Reload();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+        }
+    }
+
+    private void SaveMotto()
+    {
+        try
+        {
+            _identity.SetHouseholdMotto(MottoHouseholdName, MottoText);
+            StatusMessage = string.IsNullOrWhiteSpace(MottoText) ? "Motto cleared." : "Motto saved.";
             Reload();
         }
         catch (Exception ex)

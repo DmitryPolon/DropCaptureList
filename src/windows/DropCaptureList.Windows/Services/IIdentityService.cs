@@ -9,7 +9,8 @@ public interface IIdentityService
     IReadOnlyList<string> KnownHouseholds();
     IReadOnlyList<AdminUserRow> ListUsers();
     void AddUser(string email, string loginName, string householdName, string nickname, bool isAppAdmin);
-    void CreateHousehold(string name);
+    void CreateHousehold(string name, string? motto = null);
+    void SetHouseholdMotto(string householdName, string motto);
     void RemoveFromHousehold(Guid userId, string householdName);
 }
 

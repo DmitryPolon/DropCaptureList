@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="src/windows/DropCaptureList.Windows/DropCaptureList.Windows.csproj" />
+  <Project Path="src/api/DropCaptureList.Api.csproj" />
 </Solution>
