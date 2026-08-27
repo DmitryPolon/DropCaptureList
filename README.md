@@ -1,97 +1,75 @@
 # DropCaptureList
 
-Shared household list. A Windows app captures highlighted Excel cells (one cell = one record). The **mobile web app is React** (Vite) so phones can check items off in the browser. That is the stack to keep using.
+Household shared list. **Windows** captures highlighted Excel cells (one cell = one record). **React** is the phone/web list: check off items, swipe to remove, household motto.
+
+Live site: **https://droplist.azpcloud.com** (not `azpcloud.com` — that root is unused).
 
 Open `DropCaptureList.slnx` in Visual Studio.
 
 ## What works today
 
-- WPF on .NET 9 for Excel capture.
-- Sign in with **email** and **household name** (not nickname). Nickname is the display name on a household.
-- Session is remembered on this PC (DPAPI). **Sign out** clears it.
-- Azure SQL with Microsoft Entra (no SQL password in the app). First Continue may show a Windows account picker; later launches reuse a cached token until sign-out.
-- Excel capture: highlight cells, then **Capture selected Excel cells**. Empty cells are skipped. Merged ranges count as one record.
-- **Delete selected** removes a row that should never have been captured.
-- **Clear list** marks remaining items completed. They stay in the database and show gray. History reporting is later.
-- Temporary WPF **Admin** (app admins only): add a user, create a household, set a household motto, remove someone from a household. Full admin will move to the web later.
-- Each household can have an optional **motto**. Edit it in Windows Admin. The React app displays the letter mark and motto. Custom image logos are not in this build.
+- WPF, .NET 9. Sign in with **email** and **household name** (not nickname). Session is stored on this PC (DPAPI) until **Sign out**.
+- Azure SQL with Microsoft Entra (no SQL password in the app). First Continue may show a Windows account picker; later launches reuse a cached token.
+- Excel capture via COM against the running Excel app (`ExcelSelectionCapture`). Empty cells skipped. Merged ranges count as one record.
+- **Delete selected** (Windows): hard delete, for cells that should never have been captured.
+- **Clear list** (Windows): mark remaining items completed; they stay in SQL and show gray.
+- Temporary WPF **Admin** (app admins): add user, create household, set motto, remove from household.
+- Web: letter mark + **bold motto**, Excel column layout, checkboxes (complete for the whole household), **swipe right** = soft delete (`IsDeleted`), **Clear completed**.
 
-Word and Notepad line capture are not in this build.
+Word and Notepad capture are not in this build.
 
-## Run the mobile web app
+## Run locally
 
-1. Copy `src/api/appsettings.Local.json.example` to `src/api/appsettings.Local.json` and fill in the same SQL values you use for the Windows app (that file is gitignored).
-2. Run `database/06_AddTenantMotto.sql` if you have not already.
+1. Copy `appsettings.Local.json.example` to `appsettings.Local.json` next to the Windows project and `src/api` (gitignored). Fill in Server, Database, UserId, TenantId.
+2. Run SQL scripts as needed (`02`, then `04`–`07` if those columns/users are missing).
 3. `dotnet run --project src/api --launch-profile http`
-4. In another terminal: `npm install` then `npm run dev` in `src/web`
-5. Open http://localhost:5173 on the PC or phone on the same network (use the Vite URL). Sign in with **email** and **household name**. Checking a box marks that item complete for everyone in the household.
+4. `npm install` then `npm run dev` in `src/web`
+5. http://localhost:5173 (same Wi‑Fi: Vite prints a LAN URL; `host: true` is on)
 
-Set a motto in Windows Admin; it shows under the household name on the web. Capture still happens in Excel on Windows.
+## Hosting and CI/CD
 
-## Hosting (`droplist.azpcloud.com`)
-
-The public site is **https://droplist.azpcloud.com** (not the `azpcloud.com` root). GitHub Actions on `main` deploy the React app to **Azure Static Web Apps** (Free) and the API to **App Service**. Pull requests get a Static Web Apps preview URL.
-
-### GoDaddy DNS (once)
-
-In GoDaddy DNS for `azpcloud.com`, add **only** a subdomain (leave `@` / `www` alone):
-
-| Type | Name | Value |
+| Piece | Where | Cost |
 | --- | --- | --- |
-| CNAME | `droplist` | `witty-beach-05c8f2e1e.7.azurestaticapps.net` |
+| React | Azure Static Web Apps Free → `droplist.azpcloud.com` | $0 |
+| API | App Service Linux F1 `droplist-azpcloud-api` | $0 (sleeps when idle) |
+| Data | Your existing Azure SQL | existing |
 
-Then in Azure Portal → Static Web App → Custom domains → add `droplist.azpcloud.com`. HTTPS is included on the Free plan.
+GitHub Actions:
 
-### GitHub secrets (already used by `.github/workflows/deploy.yml`)
+- `.github/workflows/ci.yml` — build API + web on push/PR to `main`
+- `.github/workflows/deploy.yml` — deploy web (and PR preview URLs) + API on `main`
 
-- `AZURE_STATIC_WEB_APPS_API_TOKEN`
-- `AZURE_WEBAPP_NAME`
-- `AZURE_WEBAPP_PUBLISH_PROFILE`
-- `VITE_API_BASE` — public API origin, for example `https://your-api.azurewebsites.net` (the phone still opens `droplist.azpcloud.com`)
+Secrets: `AZURE_STATIC_WEB_APPS_API_TOKEN`, `AZURE_WEBAPP_PUBLISH_PROFILE`, `VITE_API_BASE`. SQL names stay in App Service settings. In Azure the API uses **Managed Identity** (run `database/07_GrantApiManagedIdentity.sql` as Entra SQL admin).
 
-SQL server/database names stay in App Service settings, not in git. The API uses **Managed Identity** in Azure.
+### GoDaddy (already done)
 
-## Local SQL settings (keep out of git)
-
-Copy `appsettings.Local.json.example` to `appsettings.Local.json` next to the Windows project and the API project, on your machine only. Fill in:
-
-- `Server` — Azure SQL host
-- `Database` — database name
-- `UserId` — Entra email used to get a token
-- `TenantId` — Entra tenant id (so Hotmail is not sent to the wrong Microsoft tenant)
-
-Never commit real server names, database names, emails, or tenant ids.
-
-Until the Windows local file is present, the Windows app can still run against a local JSON store.
+CNAME **Name** `droplist` → `witty-beach-05c8f2e1e.7.azurestaticapps.net`. Do not use Forwarding. Leave `@` / `www` alone.
 
 ## Database scripts
 
-Create the Azure SQL server and database in the portal (or pass names into `database/CreateAzureSql.ps1` at runtime — do not put those names in the repo). Then connect with Microsoft Entra and run, in order:
+Create the database in the portal (or `database/CreateAzureSql.ps1` with names at runtime — do not commit those names). Connect with Microsoft Entra:
 
-1. `database/02_CreateTables.sql`
-2. `database/04_AddUserEmailAndAppAdmin.sql` if the database predates email / app-admin columns
-3. `database/05_AddItemDisplayFormat.sql` if the database predates Excel layout columns
-4. `database/06_AddTenantMotto.sql` if the database predates household mottos
-5. `database/07_GrantApiManagedIdentity.sql` if you host the API on Azure App Service (managed identity)
+1. `02_CreateTables.sql`
+2. `04_AddUserEmailAndAppAdmin.sql` if needed
+3. `05_AddItemDisplayFormat.sql` if needed
+4. `06_AddTenantMotto.sql` if needed
+5. `07_GrantApiManagedIdentity.sql` for the hosted API
 
-`database/01_CreateDatabase.sql` is only for optional LocalDB (`sqlcmd -v DatabaseName=...`). `database/03_SeedDev.sql` is sample `mom` / `dad` / `Home` data for local use — do not run it against a shared production database.
+`01` is optional LocalDB. `03_SeedDev.sql` is fake `mom`/`dad`/`Home` — do not run on a shared production database.
 
-App admin is `Users.IsAppAdmin`. Household role is `Memberships.Role`. Those are different.
+`Users.IsAppAdmin` is not the same as household `Memberships.Role`.
 
 ## Not built yet
 
-- Live updates while another person checks a box (refresh for now)
+- Live updates without refresh
 - Web admin
 - Application Insights
 - Word / Notepad capture
 - Weekly history report UI
 
-See [PLAN.md](PLAN.md) for the longer product sketch.
+See [PLAN.md](PLAN.md).
 
 ## Requirements
 
-- Windows
-- .NET 9 SDK
-- Node.js 22+ for the web app
-- Excel for capture
-- An Azure SQL database with Entra-only auth, and your Entra user as a SQL admin or contained user
+- Windows, .NET 9 SDK, Node.js 22+, Excel for capture
+- Azure SQL with Entra-only auth
