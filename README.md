@@ -42,6 +42,14 @@ GitHub Actions:
 
 Secrets: `AZURE_STATIC_WEB_APPS_API_TOKEN`, `AZURE_WEBAPP_PUBLISH_PROFILE`, `VITE_API_BASE`. SQL names stay in App Service settings. In Azure the API uses **Managed Identity** (run `database/07_GrantApiManagedIdentity.sql` as Entra SQL admin).
 
+### Instant updates, stateless API, observability
+
+These are three different pieces:
+
+- **Instant (SignalR).** Open phones join a household group on the same F1 App Service (`/hubs/list`). Add, check, swipe, and clear broadcast `listChanged`; phones reload the list without a manual refresh. Excel capture on Windows POSTs `/notify` so phones update too. This is **in-process SignalR**, not a paid Azure SignalR resource. Connections live only in that one app instance; after sleep/restart, the client reconnects.
+- **Stateless HTTP.** The API does not keep a login session store. Each request sends **email + household** and checks SQL. List data is in Azure SQL. The browser keeps `localStorage`; Windows keeps `session.bin` (DPAPI).
+- **Observability.** Application Insights **`droplist-api`** (workspace **`law-droplist`** in `rg-droplist-web`). The connection string is an App Service setting, not in git. Portal: search **`droplist-api`** (Application Insights, not the App Service). Use **Live Metrics**, **Failures**, **Performance**, and **Logs**. Local `dotnet run` does not send telemetry unless you add that setting to gitignored `appsettings.Local.json`.
+
 ### GoDaddy (already done)
 
 CNAME **Name** `droplist` → `witty-beach-05c8f2e1e.7.azurestaticapps.net`. Do not use Forwarding. Leave `@` / `www` alone.
