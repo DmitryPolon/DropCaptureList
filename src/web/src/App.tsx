@@ -36,6 +36,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
   const [email, setEmail] = useState("");
   const [household, setHousehold] = useState("");
+  const [draft, setDraft] = useState("");
   const [items, setItems] = useState<ListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -106,9 +107,9 @@ export default function App() {
     }
   }
 
-  async function postList(path: string) {
+  async function postList(path: string, extra?: Record<string, string>) {
     if (!session) {
-      return;
+      return false;
     }
     setBusy(true);
     setError(null);
@@ -116,17 +117,37 @@ export default function App() {
       const response = await fetch(apiUrl(path), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: session.email, household: session.household })
+        body: JSON.stringify({
+          email: session.email,
+          household: session.household,
+          ...extra
+        })
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(problemMessage(body, "Could not update the list."));
       }
       setItems(body as ListItem[]);
+      return true;
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Could not update the list.");
+      return false;
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function addItem(event: FormEvent) {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!session || !text) {
+      return;
+    }
+    const ok = await postList(`/api/households/${encodeURIComponent(session.household)}/items`, {
+      text
+    });
+    if (ok) {
+      setDraft("");
     }
   }
 
@@ -283,10 +304,28 @@ export default function App() {
       ) : null}
 
       {!busy && items.length === 0 ? (
-        <p className="hint">No items yet. Capture cells from Excel on Windows.</p>
+        <p className="hint">No items yet. Add a task below, or capture cells from Excel on Windows.</p>
       ) : (
         <p className="hint">Swipe right on an item to remove it. Check the box when it is done.</p>
       )}
+
+      <form className="composer" onSubmit={addItem}>
+        <label className="composer-field">
+          <span className="visually-hidden">New task</span>
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Add a task"
+            maxLength={500}
+            enterKeyHint="send"
+            autoComplete="off"
+            disabled={busy}
+          />
+        </label>
+        <button type="submit" disabled={busy || !draft.trim()}>
+          Add
+        </button>
+      </form>
     </main>
   );
 }

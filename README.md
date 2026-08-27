@@ -14,7 +14,7 @@ Open `DropCaptureList.slnx` in Visual Studio.
 - **Delete selected** (Windows): hard delete, for cells that should never have been captured.
 - **Clear list** (Windows): mark remaining items completed; they stay in SQL and show gray.
 - Temporary WPF **Admin** (app admins): add user, create household, set motto, remove from household.
-- Web: letter mark + **bold motto**, Excel column layout, checkboxes (complete for the whole household), **swipe right** = soft delete (`IsDeleted`), **Clear completed**.
+- Web: letter mark + **bold motto**, Excel column layout, checkboxes (complete for the whole household), **swipe right** = soft delete (`IsDeleted`), **Add** a task from the phone, **Clear completed**.
 
 Word and Notepad capture are not in this build.
 

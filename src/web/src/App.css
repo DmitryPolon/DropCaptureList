@@ -1,7 +1,7 @@
 .page {
   max-width: 48rem;
   margin: 0 auto;
-  padding: 1.25rem 1rem 3rem;
+  padding: 1.25rem 1rem 6.5rem;
 }
 
 .eyebrow {
@@ -211,4 +211,62 @@
 
 .sheet-cell.done .item-text {
   text-decoration: line-through;
+}
+
+.composer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 0.65rem 1rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #cbd5e1;
+  background: #f8fafc;
+}
+
+.composer-field {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.composer input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 1rem;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.6rem;
+  background: #fff;
+}
+
+.composer button {
+  flex-shrink: 0;
+  min-height: 44px;
+  min-width: 4.5rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: #1e3a5f;
+  color: #fff;
+  font-weight: 600;
+}
+
+.composer button:disabled {
+  opacity: 0.45;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

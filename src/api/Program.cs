@@ -90,6 +90,31 @@ app.MapGet("/api/households/{household}/items", (string household, AppDirectory 
     }
 });
 
+app.MapPost("/api/households/{household}/items", (
+    string household,
+    AddItemRequest body,
+    AppDirectory directory) =>
+{
+    try
+    {
+        if (!string.Equals(body.Household, household, StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Problem("Household does not match.", statusCode: 400);
+        }
+
+        directory.AddTextItem(body.Email, household, body.Text);
+        return Results.Ok(directory.ListItems(household));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch
+    {
+        return Results.Problem("Could not add the task.", statusCode: 503);
+    }
+});
+
 app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", (
     string household,
     Guid itemId,
@@ -170,3 +195,5 @@ app.MapPost("/api/households/{household}/completed/clear", (
 app.Run();
 
 public sealed record SignInRequest(string Email, string Household);
+
+public sealed record AddItemRequest(string Email, string Household, string Text);

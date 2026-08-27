@@ -193,6 +193,37 @@ public sealed class AppDirectory
         return command.ExecuteNonQuery();
     }
 
+    public void AddTextItem(string email, string household, string text)
+    {
+        text = text.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw new InvalidOperationException("Enter a task.");
+        }
+
+        if (text.Length > 500)
+        {
+            throw new InvalidOperationException("Keep the task under 500 characters.");
+        }
+
+        var session = SignIn(email, household);
+        using var connection = _sql.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO dbo.Items (ItemId, TenantId, Text, Source, CreatedByUserId, CreatedAt)
+            SELECT NEWID(), t.TenantId, @text, N'TextLine', @userId, SYSDATETIMEOFFSET()
+            FROM dbo.Tenants t
+            WHERE LOWER(t.Name) = LOWER(@household);
+            """;
+        command.Parameters.AddWithValue("@text", text);
+        command.Parameters.AddWithValue("@userId", session.UserId);
+        command.Parameters.AddWithValue("@household", household);
+        if (command.ExecuteNonQuery() == 0)
+        {
+            throw new InvalidOperationException("Could not add the task.");
+        }
+    }
+
     internal static string Letter(string name)
     {
         name = name.Trim();
