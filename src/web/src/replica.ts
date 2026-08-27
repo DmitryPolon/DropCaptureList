@@ -42,18 +42,28 @@ function toSheet(batch: ListItem[]): ReplicaSheet {
     lookup.set(`${item.excelRow}:${item.excelColumn}`, item);
   }
 
-  const rows: ReplicaCell[][] = [];
-  for (let row = minRow; row <= maxRow; row++) {
-    const cells: ReplicaCell[] = [];
-    for (let col = minCol; col <= maxCol; col++) {
-      cells.push({ item: lookup.get(`${row}:${col}`) ?? null });
+  const columnCount = maxCol - minCol + 1;
+  const columns: ListItem[][] = [];
+  for (let col = minCol; col <= maxCol; col++) {
+    const packed: ListItem[] = [];
+    for (let row = minRow; row <= maxRow; row++) {
+      const item = lookup.get(`${row}:${col}`);
+      if (item) {
+        packed.push(item);
+      }
     }
-    rows.push(cells);
+    columns.push(packed);
+  }
+
+  const rowCount = Math.max(0, ...columns.map((column) => column.length));
+  const rows: ReplicaCell[][] = [];
+  for (let row = 0; row < rowCount; row++) {
+    rows.push(columns.map((column) => ({ item: column[row] ?? null })));
   }
 
   return {
     createdAt: batch[0]?.createdAt ?? "",
-    columnCount: maxCol - minCol + 1,
+    columnCount,
     rows
   };
 }
