@@ -11,6 +11,7 @@ public sealed class MainViewModel : ViewModelBase
     private readonly ExcelSelectionCapture _excel;
     private readonly ProtectedSessionStore _sessions;
     private readonly IIdentityService _identity;
+    private readonly ListSyncClient _sync;
     private UserSession _session;
     private LocalTenant? _selectedHousehold;
     private string _statusMessage = "Open Excel, highlight cells, then capture. Each cell becomes one record.";
@@ -23,13 +24,15 @@ public sealed class MainViewModel : ViewModelBase
         ICaptureService captures,
         ExcelSelectionCapture excel,
         ProtectedSessionStore sessions,
-        IIdentityService identity)
+        IIdentityService identity,
+        ListSyncClient sync)
     {
         _session = session;
         _captures = captures;
         _excel = excel;
         _sessions = sessions;
         _identity = identity;
+        _sync = sync;
 
         CaptureCommand = new RelayCommand(CaptureFromExcel);
         ClearHouseholdCommand = new RelayCommand(ClearHousehold);
@@ -131,6 +134,7 @@ public sealed class MainViewModel : ViewModelBase
             var added = _captures.AddExcelCells(_session, toStore);
             ShowReplica(cells);
             ReloadItems();
+            NotifyPhones();
             StatusMessage = added.Count == 1
                 ? "Captured 1 cell."
                 : $"Captured {added.Count} cells.";
@@ -154,6 +158,7 @@ public sealed class MainViewModel : ViewModelBase
 
             var deleted = _captures.DeleteItems(_session.TenantId, ids);
             ReloadItems();
+            NotifyPhones();
             StatusMessage = deleted == 1 ? "Deleted 1 cell." : $"Deleted {deleted} cells.";
         }
         catch (Exception ex)
@@ -168,6 +173,7 @@ public sealed class MainViewModel : ViewModelBase
         {
             var completed = _captures.CompleteHousehold(_session.TenantId, _session.UserId);
             ReloadItems();
+            NotifyPhones();
             StatusMessage = completed == 0
                 ? "Nothing left to complete."
                 : $"Marked {completed} items completed.";
@@ -195,6 +201,22 @@ public sealed class MainViewModel : ViewModelBase
     {
         _sessions.Clear();
         SignedOut?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void NotifyPhones()
+    {
+        var session = _session;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _sync.NotifyAsync(session);
+            }
+            catch
+            {
+                // Phones still refresh on the next open; capture itself already succeeded.
+            }
+        });
     }
 
     private void ReloadHouseholds()

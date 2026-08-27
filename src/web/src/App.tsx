@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiUrl } from "./api";
+import { connectListHub } from "./live";
 import { sheetsFromItems } from "./replica";
 import { SwipeAway } from "./SwipeAway";
 import type { ListItem, Session } from "./types";
@@ -46,33 +47,44 @@ export default function App() {
     if (!session) {
       return;
     }
+    const current = session;
     let cancelled = false;
-    setBusy(true);
-    fetch(apiUrl(`/api/households/${encodeURIComponent(session.household)}/items`))
-      .then(async (response) => {
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
-          throw new Error(problemMessage(body, "Could not load the list."));
-        }
-        return response.json() as Promise<ListItem[]>;
-      })
-      .then((list) => {
-        if (!cancelled) {
-          setItems(list);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Could not load the list.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setBusy(false);
-        }
-      });
+
+    function load(silent: boolean) {
+      if (!silent) {
+        setBusy(true);
+      }
+      fetch(apiUrl(`/api/households/${encodeURIComponent(current.household)}/items`))
+        .then(async (response) => {
+          if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(problemMessage(body, "Could not load the list."));
+          }
+          return response.json() as Promise<ListItem[]>;
+        })
+        .then((list) => {
+          if (!cancelled) {
+            setItems(list);
+            setError(null);
+          }
+        })
+        .catch((err: unknown) => {
+          if (!cancelled && !silent) {
+            setError(err instanceof Error ? err.message : "Could not load the list.");
+          }
+        })
+        .finally(() => {
+          if (!cancelled && !silent) {
+            setBusy(false);
+          }
+        });
+    }
+
+    load(false);
+    const disconnect = connectListHub(current.email, current.household, () => load(true));
     return () => {
       cancelled = true;
+      disconnect();
     };
   }, [session]);
 

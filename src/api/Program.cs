@@ -2,6 +2,7 @@ using DropCaptureList.Api;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true);
+builder.Services.AddApplicationInsightsTelemetry();
 
 var sql = new SqlSettings();
 builder.Configuration.GetSection("Sql").Bind(sql);
@@ -25,20 +26,23 @@ builder.Services.AddCors(options =>
                 || origin.StartsWith("http://localhost:", StringComparison.OrdinalIgnoreCase)
                 || origin.StartsWith("http://127.0.0.1:", StringComparison.OrdinalIgnoreCase))
             .AllowAnyHeader()
-            .AllowAnyMethod());
+            .AllowAnyMethod()
+            .AllowCredentials());
 });
 
+builder.Services.AddSignalR();
 builder.Services.AddSingleton(sql);
 builder.Services.AddSingleton<AzureSql>();
 builder.Services.AddSingleton<Households>();
 builder.Services.AddSingleton<AppDirectory>();
+builder.Services.AddSingleton<ListRealtime>();
 
 var app = builder.Build();
 app.UseCors();
 
 app.MapGet("/api/health", () => Results.Ok(new { ok = true }));
 
-app.MapPost("/api/session", (SignInRequest body, AppDirectory directory) =>
+app.MapPost("/api/session", (SignInRequest body, AppDirectory directory, ILogger<Program> log) =>
 {
     try
     {
@@ -56,13 +60,14 @@ app.MapPost("/api/session", (SignInRequest body, AppDirectory directory) =>
     {
         return Results.Problem(ex.Message, statusCode: 400);
     }
-    catch
+    catch (Exception ex)
     {
+        log.LogError(ex, "Sign-in failed.");
         return Results.Problem("Could not sign in.", statusCode: 503);
     }
 });
 
-app.MapGet("/api/households", (Households households) =>
+app.MapGet("/api/households", (Households households, ILogger<Program> log) =>
 {
     try
     {
@@ -72,28 +77,61 @@ app.MapGet("/api/households", (Households households) =>
     {
         return Results.Problem(ex.Message, statusCode: 503);
     }
-    catch
+    catch (Exception ex)
     {
+        log.LogError(ex, "Could not list households.");
         return Results.Problem("Could not load households.", statusCode: 503);
     }
 });
 
-app.MapGet("/api/households/{household}/items", (string household, AppDirectory directory) =>
+app.MapGet("/api/households/{household}/items", (string household, AppDirectory directory, ILogger<Program> log) =>
 {
     try
     {
         return Results.Ok(directory.ListItems(household));
     }
-    catch
+    catch (Exception ex)
     {
+        log.LogError(ex, "Could not load items for {Household}.", household);
         return Results.Problem("Could not load the list.", statusCode: 503);
     }
 });
 
-app.MapPost("/api/households/{household}/items", (
+app.MapPost("/api/households/{household}/notify", async (
+    string household,
+    SignInRequest body,
+    AppDirectory directory,
+    ListRealtime realtime,
+    ILogger<Program> log) =>
+{
+    try
+    {
+        if (!string.Equals(body.Household, household, StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Problem("Household does not match.", statusCode: 400);
+        }
+
+        directory.SignIn(body.Email, household);
+        await realtime.NotifyAsync(household);
+        return Results.Ok(new { ok = true });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Notify failed for {Household}.", household);
+        return Results.Problem("Could not notify the household.", statusCode: 503);
+    }
+});
+
+app.MapPost("/api/households/{household}/items", async (
     string household,
     AddItemRequest body,
-    AppDirectory directory) =>
+    AppDirectory directory,
+    ListRealtime realtime,
+    ILogger<Program> log) =>
 {
     try
     {
@@ -103,23 +141,27 @@ app.MapPost("/api/households/{household}/items", (
         }
 
         directory.AddTextItem(body.Email, household, body.Text);
+        await realtime.NotifyAsync(household);
         return Results.Ok(directory.ListItems(household));
     }
     catch (InvalidOperationException ex)
     {
         return Results.Problem(ex.Message, statusCode: 400);
     }
-    catch
+    catch (Exception ex)
     {
+        log.LogError(ex, "Could not add a task for {Household}.", household);
         return Results.Problem("Could not add the task.", statusCode: 503);
     }
 });
 
-app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", (
+app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", async (
     string household,
     Guid itemId,
     SignInRequest body,
-    AppDirectory directory) =>
+    AppDirectory directory,
+    ListRealtime realtime,
+    ILogger<Program> log) =>
 {
     try
     {
@@ -129,23 +171,27 @@ app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", (
         }
 
         directory.ToggleComplete(body.Email, household, itemId);
+        await realtime.NotifyAsync(household);
         return Results.Ok(directory.ListItems(household));
     }
     catch (InvalidOperationException ex)
     {
         return Results.Problem(ex.Message, statusCode: 400);
     }
-    catch
+    catch (Exception ex)
     {
+        log.LogError(ex, "Could not toggle {ItemId} for {Household}.", itemId, household);
         return Results.Problem("Could not update the item.", statusCode: 503);
     }
 });
 
-app.MapPost("/api/households/{household}/items/{itemId:guid}/remove", (
+app.MapPost("/api/households/{household}/items/{itemId:guid}/remove", async (
     string household,
     Guid itemId,
     SignInRequest body,
-    AppDirectory directory) =>
+    AppDirectory directory,
+    ListRealtime realtime,
+    ILogger<Program> log) =>
 {
     try
     {
@@ -155,22 +201,26 @@ app.MapPost("/api/households/{household}/items/{itemId:guid}/remove", (
         }
 
         directory.SoftDelete(body.Email, household, itemId);
+        await realtime.NotifyAsync(household);
         return Results.Ok(directory.ListItems(household));
     }
     catch (InvalidOperationException ex)
     {
         return Results.Problem(ex.Message, statusCode: 400);
     }
-    catch
+    catch (Exception ex)
     {
+        log.LogError(ex, "Could not remove {ItemId} for {Household}.", itemId, household);
         return Results.Problem("Could not remove the item.", statusCode: 503);
     }
 });
 
-app.MapPost("/api/households/{household}/completed/clear", (
+app.MapPost("/api/households/{household}/completed/clear", async (
     string household,
     SignInRequest body,
-    AppDirectory directory) =>
+    AppDirectory directory,
+    ListRealtime realtime,
+    ILogger<Program> log) =>
 {
     try
     {
@@ -180,18 +230,21 @@ app.MapPost("/api/households/{household}/completed/clear", (
         }
 
         directory.ClearCompleted(body.Email, household);
+        await realtime.NotifyAsync(household);
         return Results.Ok(directory.ListItems(household));
     }
     catch (InvalidOperationException ex)
     {
         return Results.Problem(ex.Message, statusCode: 400);
     }
-    catch
+    catch (Exception ex)
     {
+        log.LogError(ex, "Could not clear completed items for {Household}.", household);
         return Results.Problem("Could not clear completed items.", statusCode: 503);
     }
 });
 
+app.MapHub<ListHub>("/hubs/list");
 app.Run();
 
 public sealed record SignInRequest(string Email, string Household);

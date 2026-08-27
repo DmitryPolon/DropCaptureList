@@ -1,4 +1,5 @@
 {
+  "ApiBase": "https://droplist-azpcloud-api.azurewebsites.net",
   "Sql": {
     "Server": "",
     "Database": "",

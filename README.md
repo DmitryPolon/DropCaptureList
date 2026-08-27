@@ -14,13 +14,13 @@ Open `DropCaptureList.slnx` in Visual Studio.
 - **Delete selected** (Windows): hard delete, for cells that should never have been captured.
 - **Clear list** (Windows): mark remaining items completed; they stay in SQL and show gray.
 - Temporary WPF **Admin** (app admins): add user, create household, set motto, remove from household.
-- Web: letter mark + **bold motto**, Excel column layout, checkboxes (complete for the whole household), **swipe right** = soft delete (`IsDeleted`), **Add** a task from the phone, **Clear completed**.
+- Web: letter mark + **bold motto**, Excel column layout, checkboxes, **swipe right** to remove, **Add** from the phone, **Clear completed**. Open phones update over **SignalR** (in the App Service, not a paid Azure SignalR resource). Windows capture/delete/complete pings the API so phones refresh.
 
 Word and Notepad capture are not in this build.
 
 ## Run locally
 
-1. Copy `appsettings.Local.json.example` to `appsettings.Local.json` next to the Windows project and `src/api` (gitignored). Fill in Server, Database, UserId, TenantId.
+1. Copy `appsettings.Local.json.example` to `appsettings.Local.json` next to the Windows project and `src/api` (gitignored). Fill in Server, Database, UserId, TenantId. On Windows, `ApiBase` is the hosted API URL so Excel capture can wake phones.
 2. Run SQL scripts as needed (`02`, then `04`–`07` if those columns/users are missing).
 3. `dotnet run --project src/api --launch-profile http`
 4. `npm install` then `npm run dev` in `src/web`
@@ -31,7 +31,8 @@ Word and Notepad capture are not in this build.
 | Piece | Where | Cost |
 | --- | --- | --- |
 | React | Azure Static Web Apps Free → `droplist.azpcloud.com` | $0 |
-| API | App Service Linux F1 `droplist-azpcloud-api` | $0 (sleeps when idle) |
+| API + SignalR | App Service Linux F1 `droplist-azpcloud-api` | $0 (sleeps when idle) |
+| Telemetry | Application Insights in the web resource group (connection string on the App Service, not in git) | free tier unless you exceed the included volume |
 | Data | Your existing Azure SQL | existing |
 
 GitHub Actions:
@@ -61,9 +62,7 @@ Create the database in the portal (or `database/CreateAzureSql.ps1` with names a
 
 ## Not built yet
 
-- Live updates without refresh
 - Web admin
-- Application Insights
 - Word / Notepad capture
 - Weekly history report UI
 
