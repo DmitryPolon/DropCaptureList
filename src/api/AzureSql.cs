@@ -54,6 +54,15 @@ public sealed class AzureSql
 
     private TokenCredential CreateCredential()
     {
+        if (RunningInAzure())
+        {
+            return new DefaultAzureCredential(new DefaultAzureCredentialOptions
+            {
+                TenantId = string.IsNullOrWhiteSpace(_settings.TenantId) ? null : _settings.TenantId,
+                ExcludeInteractiveBrowserCredential = true
+            });
+        }
+
         var options = new InteractiveBrowserCredentialOptions
         {
             TokenCachePersistenceOptions = new TokenCachePersistenceOptions
@@ -85,5 +94,11 @@ public sealed class AzureSql
             TenantId = string.IsNullOrWhiteSpace(_settings.TenantId) ? null : _settings.TenantId,
             ExcludeInteractiveBrowserCredential = true
         });
+    }
+
+    private static bool RunningInAzure()
+    {
+        return !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEBSITE_SITE_NAME"))
+            || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("IDENTITY_ENDPOINT"));
     }
 }

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { apiUrl } from "./api";
 import { sheetsFromItems } from "./replica";
 import { SwipeAway } from "./SwipeAway";
 import type { ListItem, Session } from "./types";
@@ -46,7 +47,7 @@ export default function App() {
     }
     let cancelled = false;
     setBusy(true);
-    fetch(`/api/households/${encodeURIComponent(session.household)}/items`)
+    fetch(apiUrl(`/api/households/${encodeURIComponent(session.household)}/items`))
       .then(async (response) => {
         if (!response.ok) {
           const body = await response.json().catch(() => ({}));
@@ -86,7 +87,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch("/api/session", {
+      const response = await fetch(apiUrl("/api/session"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, household })
@@ -112,7 +113,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(path, {
+      const response = await fetch(apiUrl(path), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: session.email, household: session.household })

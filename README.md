@@ -28,6 +28,29 @@ Word and Notepad line capture are not in this build.
 
 Set a motto in Windows Admin; it shows under the household name on the web. Capture still happens in Excel on Windows.
 
+## Hosting (`droplist.azpcloud.com`)
+
+The public site is **https://droplist.azpcloud.com** (not the `azpcloud.com` root). GitHub Actions on `main` deploy the React app to **Azure Static Web Apps** (Free) and the API to **App Service**. Pull requests get a Static Web Apps preview URL.
+
+### GoDaddy DNS (once)
+
+In GoDaddy DNS for `azpcloud.com`, add **only** a subdomain (leave `@` / `www` alone):
+
+| Type | Name | Value |
+| --- | --- | --- |
+| CNAME | `droplist` | `witty-beach-05c8f2e1e.7.azurestaticapps.net` |
+
+Then in Azure Portal → Static Web App → Custom domains → add `droplist.azpcloud.com`. HTTPS is included on the Free plan.
+
+### GitHub secrets (already used by `.github/workflows/deploy.yml`)
+
+- `AZURE_STATIC_WEB_APPS_API_TOKEN`
+- `AZURE_WEBAPP_NAME`
+- `AZURE_WEBAPP_PUBLISH_PROFILE`
+- `VITE_API_BASE` — public API origin, for example `https://your-api.azurewebsites.net` (the phone still opens `droplist.azpcloud.com`)
+
+SQL server/database names stay in App Service settings, not in git. The API uses **Managed Identity** in Azure.
+
 ## Local SQL settings (keep out of git)
 
 Copy `appsettings.Local.json.example` to `appsettings.Local.json` next to the Windows project and the API project, on your machine only. Fill in:
@@ -49,6 +72,7 @@ Create the Azure SQL server and database in the portal (or pass names into `data
 2. `database/04_AddUserEmailAndAppAdmin.sql` if the database predates email / app-admin columns
 3. `database/05_AddItemDisplayFormat.sql` if the database predates Excel layout columns
 4. `database/06_AddTenantMotto.sql` if the database predates household mottos
+5. `database/07_GrantApiManagedIdentity.sql` if you host the API on Azure App Service (managed identity)
 
 `database/01_CreateDatabase.sql` is only for optional LocalDB (`sqlcmd -v DatabaseName=...`). `database/03_SeedDev.sql` is sample `mom` / `dad` / `Home` data for local use — do not run it against a shared production database.
 

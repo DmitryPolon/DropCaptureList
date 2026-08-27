@@ -6,11 +6,26 @@ builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true);
 var sql = new SqlSettings();
 builder.Configuration.GetSection("Sql").Bind(sql);
 
-var origins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? ["http://localhost:5173"];
+var origins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
+var extra = builder.Configuration["Cors:Extra"]?
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    ?? [];
+origins = origins.Concat(extra).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+if (origins.Length == 0)
+{
+    origins = ["http://localhost:5173"];
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
-        policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod());
+        policy.SetIsOriginAllowed(origin =>
+                origins.Contains(origin, StringComparer.OrdinalIgnoreCase)
+                || origin.EndsWith(".azurestaticapps.net", StringComparison.OrdinalIgnoreCase)
+                || origin.StartsWith("http://localhost:", StringComparison.OrdinalIgnoreCase)
+                || origin.StartsWith("http://127.0.0.1:", StringComparison.OrdinalIgnoreCase))
+            .AllowAnyHeader()
+            .AllowAnyMethod());
 });
 
 builder.Services.AddSingleton(sql);
