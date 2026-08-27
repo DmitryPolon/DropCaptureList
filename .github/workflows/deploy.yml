@@ -36,9 +36,11 @@ jobs:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: upload
-          app_location: src/web
-          output_location: dist
+          # skip_app_build: app_location is the built files, not the Vite source
+          app_location: src/web/dist
+          output_location: ""
           skip_app_build: true
+          skip_api_build: true
 
   api:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

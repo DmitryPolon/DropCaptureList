@@ -37,7 +37,7 @@ Word and Notepad capture are not in this build.
 GitHub Actions:
 
 - `.github/workflows/ci.yml` — build API + web on push/PR to `main`
-- `.github/workflows/deploy.yml` — deploy web (and PR preview URLs) + API on `main`
+- `.github/workflows/deploy.yml` — deploy web (and PR preview URLs) + API on `main`. Web upload is `src/web/dist` after `npm run build` (not the Vite source `index.html`).
 
 Secrets: `AZURE_STATIC_WEB_APPS_API_TOKEN`, `AZURE_WEBAPP_PUBLISH_PROFILE`, `VITE_API_BASE`. SQL names stay in App Service settings. In Azure the API uses **Managed Identity** (run `database/07_GrantApiManagedIdentity.sql` as Entra SQL admin).
 
