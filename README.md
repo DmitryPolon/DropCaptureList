@@ -1,5 +1,7 @@
 # DropCaptureList
 
+**Version 0.1.0** (27 Aug 2026).
+
 Household shared list. **Windows** captures highlighted Excel cells (one cell = one record). **React** is the phone/web list: check off items, swipe to remove, household motto.
 
 Live site: **https://droplist.azpcloud.com**.
