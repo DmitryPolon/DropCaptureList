@@ -51,6 +51,8 @@ public sealed class MainViewModel : ViewModelBase
 
     public IIdentityService Identity => _identity;
 
+    public ICaptureService Captures => _captures;
+
     public ObservableCollection<LocalTenant> Households { get; }
     public ObservableCollection<CapturedItem> Items { get; }
     public ObservableCollection<ReplicaRow> ReplicaRows { get; }

@@ -220,7 +220,94 @@ public sealed class SqlCaptureService : ICaptureService
             """;
         command.Parameters.AddWithValue("@tenantId", tenantId);
         command.Parameters.AddWithValue("@userId", completedByUserId);
-        return command.ExecuteNonQuery();
+        var completed = command.ExecuteNonQuery();
+        StampLastCleared(connection, tenantId);
+        return completed;
+    }
+
+    public AdminSnapshot GetAdminSnapshot()
+    {
+        using var connection = _connections.Open();
+        var used = ReadUsedBytes(connection);
+        var (household, cleared, approximate) = ReadLastCleared(connection);
+        var (remaining, vcoreError) = _connections.TryReadFreeVCoreSeconds();
+        return new AdminSnapshot
+        {
+            DataUsedBytes = used,
+            VCoreRemaining = remaining,
+            VCoreError = vcoreError,
+            LastClearedAt = cleared,
+            LastClearedHousehold = household,
+            LastClearedIsApproximate = approximate
+        };
+    }
+
+    private static long ReadUsedBytes(SqlConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT SUM(CAST(FILEPROPERTY([name], 'SpaceUsed') AS bigint)) * 8192
+            FROM sys.database_files
+            WHERE [type] = 0;
+            """;
+        var value = command.ExecuteScalar();
+        return value is null or DBNull ? 0 : Convert.ToInt64(value);
+    }
+
+    private static (string? Household, DateTimeOffset? At, bool Approximate) ReadLastCleared(SqlConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT CASE WHEN COL_LENGTH(N'dbo.Tenants', N'LastClearedAt') IS NULL THEN 0 ELSE 1 END;
+            """;
+        var hasColumn = Convert.ToInt32(command.ExecuteScalar()) == 1;
+        if (hasColumn)
+        {
+            using var stamped = connection.CreateCommand();
+            stamped.CommandText = """
+                SELECT TOP (1) [Name], [LastClearedAt]
+                FROM dbo.Tenants
+                WHERE [LastClearedAt] IS NOT NULL
+                ORDER BY [LastClearedAt] DESC;
+                """;
+            using var reader = stamped.ExecuteReader();
+            if (reader.Read())
+            {
+                return (reader.GetString(0), reader.GetFieldValue<DateTimeOffset>(1), false);
+            }
+        }
+
+        using var fallback = connection.CreateCommand();
+        fallback.CommandText = """
+            SELECT TOP (1) t.[Name], MAX(i.CompletedAt)
+            FROM dbo.Tenants t
+            INNER JOIN dbo.Items i ON i.TenantId = t.TenantId
+            WHERE i.CompletedAt IS NOT NULL
+            GROUP BY t.[Name]
+            ORDER BY MAX(i.CompletedAt) DESC;
+            """;
+        using var rows = fallback.ExecuteReader();
+        if (rows.Read())
+        {
+            return (rows.GetString(0), rows.GetFieldValue<DateTimeOffset>(1), true);
+        }
+
+        return (null, null, false);
+    }
+
+    private static void StampLastCleared(SqlConnection connection, Guid tenantId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            IF COL_LENGTH(N'dbo.Tenants', N'LastClearedAt') IS NOT NULL
+            BEGIN
+                UPDATE dbo.Tenants
+                SET LastClearedAt = SYSDATETIMEOFFSET()
+                WHERE TenantId = @tenantId;
+            END
+            """;
+        command.Parameters.AddWithValue("@tenantId", tenantId);
+        command.ExecuteNonQuery();
     }
 
     public int PurgeCompletedOlderThanOneMonth()

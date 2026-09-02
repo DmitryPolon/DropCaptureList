@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using System.Windows;
 using System.Windows.Interop;
 using Azure.Core;
@@ -11,11 +12,14 @@ namespace DropCaptureList.Windows.Services;
 public sealed class AzureSqlConnectionFactory
 {
     private static readonly TokenRequestContext TokenRequest = new(["https://database.windows.net/.default"]);
+    private static readonly TokenRequestContext ArmTokenRequest = new(["https://management.azure.com/.default"]);
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
     private readonly SqlSettings _settings;
     private readonly string _authRecordPath;
     private readonly object _gate = new();
     private InteractiveBrowserCredential? _credential;
     private AccessToken _cached;
+    private AccessToken _armCached;
 
     public AzureSqlConnectionFactory(SqlSettings settings, string dataDirectory)
     {
@@ -32,12 +36,88 @@ public sealed class AzureSqlConnectionFactory
         return connection;
     }
 
+    public (double? Remaining, string? Error) TryReadFreeVCoreSeconds()
+    {
+        var resourceId = _settings.DatabaseResourceId;
+        if (resourceId is null)
+        {
+            return (null, "Add SubscriptionId and ResourceGroup to appsettings.Local.json to show vCore %.");
+        }
+
+        try
+        {
+            var token = CurrentArmToken();
+            var end = DateTimeOffset.UtcNow.UtcDateTime;
+            var start = end.AddHours(-24);
+            var timespan = $"{start:yyyy-MM-ddTHH:mm:ssZ}/{end:yyyy-MM-ddTHH:mm:ssZ}";
+            var url =
+                $"https://management.azure.com{resourceId}/providers/microsoft.insights/metrics"
+                + "?api-version=2018-01-01&metricnames=free_amount_remaining"
+                + $"&timespan={timespan}&interval=PT1H&aggregation=Maximum";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            using var response = Http.Send(request);
+            var json = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            if (!response.IsSuccessStatusCode)
+            {
+                if (response.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized)
+                {
+                    return (null, "vCore % needs Monitoring Reader on the SQL database (same Entra account).");
+                }
+
+                return (null, $"vCore % unavailable ({(int)response.StatusCode}).");
+            }
+
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            double? last = null;
+            if (!doc.RootElement.TryGetProperty("value", out var metrics) || metrics.GetArrayLength() == 0)
+            {
+                return (null, "vCore metric not returned yet.");
+            }
+
+            if (!metrics[0].TryGetProperty("timeseries", out var series) || series.GetArrayLength() == 0)
+            {
+                return (null, "No vCore samples in the last day (database may have been paused).");
+            }
+
+            foreach (var point in series[0].GetProperty("data").EnumerateArray())
+            {
+                if (point.TryGetProperty("maximum", out var max) && max.ValueKind is System.Text.Json.JsonValueKind.Number)
+                {
+                    last = max.GetDouble();
+                }
+            }
+
+            return last is null ? (null, "No vCore samples in the last few hours (database may have been paused).") : (last, null);
+        }
+        catch (Exception ex)
+        {
+            return (null, ex.Message);
+        }
+    }
+
+    private string CurrentArmToken()
+    {
+        lock (_gate)
+        {
+            if (!string.IsNullOrEmpty(_armCached.Token) && _armCached.ExpiresOn > DateTimeOffset.UtcNow.AddMinutes(3))
+            {
+                return _armCached.Token;
+            }
+
+            var credential = _credential ??= CreateCredential();
+            _armCached = credential.GetToken(ArmTokenRequest, CancellationToken.None);
+            return _armCached.Token;
+        }
+    }
+
     public void ClearPersistedLogin()
     {
         lock (_gate)
         {
             _credential = null;
             _cached = default;
+            _armCached = default;
             if (File.Exists(_authRecordPath))
             {
                 File.Delete(_authRecordPath);

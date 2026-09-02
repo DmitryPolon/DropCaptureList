@@ -20,7 +20,7 @@ public partial class MainWindow : Window
         Loaded += (_, _) => ViewModel.LoadFromStore();
         viewModel.AdminRequested += (_, _) =>
         {
-            var admin = new AdminWindow(new AdminViewModel(viewModel.Identity));
+            var admin = new AdminWindow(new AdminViewModel(viewModel.Identity, viewModel.Captures));
             admin.Owner = this;
             admin.ShowDialog();
             ViewModel.LoadFromStore();

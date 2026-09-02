@@ -22,4 +22,5 @@ public interface ICaptureService
     int DeleteItems(Guid tenantId, IEnumerable<Guid> itemIds);
     int CompleteHousehold(Guid tenantId, Guid completedByUserId);
     int PurgeCompletedOlderThanOneMonth();
+    AdminSnapshot GetAdminSnapshot();
 }

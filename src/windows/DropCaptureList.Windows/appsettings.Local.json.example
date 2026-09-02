@@ -4,6 +4,8 @@
     "Server": "",
     "Database": "",
     "UserId": "",
-    "TenantId": ""
+    "TenantId": "",
+    "SubscriptionId": "",
+    "ResourceGroup": ""
   }
 }

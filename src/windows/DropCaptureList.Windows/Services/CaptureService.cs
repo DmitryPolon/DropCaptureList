@@ -160,12 +160,36 @@ public sealed class CaptureService : ICaptureService
             n++;
         }
 
-        if (n > 0)
+        var tenant = db.Tenants.FirstOrDefault(t => t.Id == tenantId);
+        if (tenant is not null)
+        {
+            tenant.LastClearedAt = now;
+        }
+
+        if (n > 0 || tenant is not null)
         {
             _store.Save(db);
         }
 
         return n;
+    }
+
+    public AdminSnapshot GetAdminSnapshot()
+    {
+        var db = _store.Load();
+        var used = db.Items.Sum(i => (i.Text?.Length ?? 0) * 2L);
+        var last = db.Tenants
+            .Where(t => t.LastClearedAt is not null)
+            .OrderByDescending(t => t.LastClearedAt)
+            .FirstOrDefault();
+        return new AdminSnapshot
+        {
+            DataUsedBytes = used,
+            VCoreError = "Local JSON store has no Azure vCore meter.",
+            LastClearedAt = last?.LastClearedAt,
+            LastClearedHousehold = last?.Name,
+            LastClearedIsApproximate = false
+        };
     }
 
     public int PurgeCompletedOlderThanOneMonth()

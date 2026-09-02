@@ -61,6 +61,7 @@ Create the database in the portal (or `database/CreateAzureSql.ps1` with names a
 3. `05_AddItemDisplayFormat.sql` if needed
 4. `06_AddTenantMotto.sql` if needed
 5. `07_GrantApiManagedIdentity.sql` for the hosted API
+6. `08_AddTenantLastClearedAt.sql` so Admin can show the last Windows **Clear list** time
 
 `01` is optional LocalDB. `03_SeedDev.sql` is fake `mom`/`dad`/`Home` — do not run on a shared production database.
 
