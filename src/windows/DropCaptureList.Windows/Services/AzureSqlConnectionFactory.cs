@@ -26,7 +26,7 @@ public sealed class AzureSqlConnectionFactory
     public SqlConnection Open()
     {
         var connection = new SqlConnection(
-            $"Server={_settings.Server};Database={_settings.Database};Encrypt=True;TrustServerCertificate=False;");
+            $"Server={_settings.Server};Database={_settings.Database};Encrypt=True;TrustServerCertificate=False;Pooling=False;");
         connection.AccessToken = CurrentToken();
         connection.Open();
         return connection;

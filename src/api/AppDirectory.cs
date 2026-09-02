@@ -106,8 +106,8 @@ public sealed class AppDirectory
                 ON creator.UserId = i.CreatedByUserId AND creator.TenantId = i.TenantId
             LEFT JOIN dbo.Memberships completer
                 ON completer.UserId = i.CompletedByUserId AND completer.TenantId = i.TenantId
-            WHERE LOWER(t.Name) = LOWER(@household) AND i.IsDeleted = 0
-            ORDER BY CASE WHEN i.CompletedAt IS NULL THEN 0 ELSE 1 END, i.CreatedAt DESC;
+            WHERE LOWER(t.Name) = LOWER(@household) AND i.IsDeleted = 0 AND i.CompletedAt IS NULL
+            ORDER BY i.CreatedAt DESC;
             """;
         command.Parameters.AddWithValue("@household", household);
 
@@ -207,6 +207,11 @@ public sealed class AppDirectory
         }
 
         var session = SignIn(email, household);
+        if (ListItems(household).Any(item => string.Equals(item.Text.Trim(), text, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
         using var connection = _sql.Open();
         using var command = connection.CreateCommand();
         command.CommandText = """

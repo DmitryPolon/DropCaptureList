@@ -25,3 +25,10 @@ public static class CaptureSources
     public const string ExcelCell = "ExcelCell";
     public const string TextLine = "TextLine";
 }
+
+public sealed class CaptureSaveResult
+{
+    public int Inserted { get; init; }
+    public int Updated { get; init; }
+    public int DuplicatesSkipped { get; init; }
+}

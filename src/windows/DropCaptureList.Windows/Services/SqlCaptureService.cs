@@ -22,7 +22,7 @@ public sealed class SqlCaptureService : ICaptureService
             FROM dbo.Items i
             INNER JOIN dbo.Tenants t ON t.TenantId = i.TenantId
             INNER JOIN dbo.Memberships m ON m.UserId = i.CreatedByUserId AND m.TenantId = i.TenantId
-            WHERE i.TenantId = @tenantId AND i.IsDeleted = 0
+            WHERE i.TenantId = @tenantId AND i.IsDeleted = 0 AND i.CompletedAt IS NULL
             ORDER BY i.CreatedAt DESC;
             """;
         command.Parameters.AddWithValue("@tenantId", tenantId);
@@ -108,6 +108,82 @@ public sealed class SqlCaptureService : ICaptureService
         return added;
     }
 
+    public CaptureSaveResult SaveItems(UserSession session, IReadOnlyList<CapturedItem> items)
+    {
+        var live = GetItems(session.TenantId);
+        var byId = live.ToDictionary(i => i.Id);
+        var texts = live
+            .Select(i => i.Text.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var inserted = 0;
+        var updated = 0;
+        var skipped = 0;
+
+        using var connection = _connections.Open();
+        foreach (var item in items)
+        {
+            var text = item.Text.Trim();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            if (byId.TryGetValue(item.Id, out var existing))
+            {
+                if (string.Equals(existing.Text.Trim(), text, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                using var update = connection.CreateCommand();
+                update.CommandText = """
+                    UPDATE dbo.Items
+                    SET Text = @text
+                    WHERE TenantId = @tenantId AND ItemId = @id AND IsDeleted = 0 AND CompletedAt IS NULL;
+                    """;
+                update.Parameters.AddWithValue("@text", text);
+                update.Parameters.AddWithValue("@tenantId", session.TenantId);
+                update.Parameters.AddWithValue("@id", item.Id);
+                updated += update.ExecuteNonQuery();
+                continue;
+            }
+
+            if (!texts.Add(text))
+            {
+                skipped++;
+                continue;
+            }
+
+            using var insert = connection.CreateCommand();
+            insert.CommandText = """
+                INSERT INTO dbo.Items (ItemId, TenantId, Text, Source, ExcelAddress, ExcelRow, ExcelColumn, IsBold, FontColor, FillColor, CreatedByUserId, CreatedAt)
+                VALUES (@id, @tenantId, @text, @source, @address, @row, @col, @bold, @font, @fill, @userId, @createdAt);
+                """;
+            insert.Parameters.AddWithValue("@id", item.Id);
+            insert.Parameters.AddWithValue("@tenantId", session.TenantId);
+            insert.Parameters.AddWithValue("@text", text);
+            insert.Parameters.AddWithValue("@source", string.IsNullOrWhiteSpace(item.Source) ? CaptureSources.ExcelCell : item.Source);
+            insert.Parameters.AddWithValue("@address", (object?)item.ExcelAddress ?? DBNull.Value);
+            insert.Parameters.AddWithValue("@row", item.ExcelRow);
+            insert.Parameters.AddWithValue("@col", item.ExcelColumn);
+            insert.Parameters.AddWithValue("@bold", item.IsBold);
+            insert.Parameters.AddWithValue("@font", (object?)item.FontColor ?? DBNull.Value);
+            insert.Parameters.AddWithValue("@fill", (object?)item.FillColor ?? DBNull.Value);
+            insert.Parameters.AddWithValue("@userId", session.UserId);
+            insert.Parameters.AddWithValue("@createdAt", item.CreatedAt == default ? DateTimeOffset.Now : item.CreatedAt);
+            insert.ExecuteNonQuery();
+            inserted++;
+        }
+
+        return new CaptureSaveResult
+        {
+            Inserted = inserted,
+            Updated = updated,
+            DuplicatesSkipped = skipped
+        };
+    }
+
     public int DeleteItems(Guid tenantId, IEnumerable<Guid> itemIds)
     {
         var ids = itemIds.Distinct().ToList();
@@ -144,6 +220,18 @@ public sealed class SqlCaptureService : ICaptureService
             """;
         command.Parameters.AddWithValue("@tenantId", tenantId);
         command.Parameters.AddWithValue("@userId", completedByUserId);
+        return command.ExecuteNonQuery();
+    }
+
+    public int PurgeCompletedOlderThanOneMonth()
+    {
+        using var connection = _connections.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            DELETE FROM dbo.Items
+            WHERE CompletedAt IS NOT NULL
+              AND CompletedAt < DATEADD(month, -1, SYSDATETIMEOFFSET());
+            """;
         return command.ExecuteNonQuery();
     }
 }

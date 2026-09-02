@@ -13,7 +13,13 @@ public sealed class HexToBrushConverter : IValueConverter
         {
             try
             {
-                return new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)!);
+                var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)!);
+                if (brush.CanFreeze)
+                {
+                    brush.Freeze();
+                }
+
+                return brush;
             }
             catch
             {
@@ -31,6 +37,24 @@ public sealed class CompletedOpacityConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         value is true ? 0.55 : 1.0;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        Binding.DoNothing;
+}
+
+public sealed class InverseBooleanConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is not true;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is not true;
+}
+
+public sealed class InverseBooleanToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is true ? Visibility.Collapsed : Visibility.Visible;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         Binding.DoNothing;

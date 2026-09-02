@@ -7,11 +7,7 @@ export default defineConfig({
     port: 5173,
     host: true,
     proxy: {
-      "/api": "http://localhost:5236",
-      "/hubs": {
-        target: "http://localhost:5236",
-        ws: true
-      }
+      "/api": "http://localhost:5236"
     }
   }
 });

@@ -16,13 +16,13 @@ Open `DropCaptureList.slnx` in Visual Studio.
 - **Delete selected** (Windows): hard delete, for cells that should never have been captured.
 - **Clear list** (Windows): mark remaining items completed; they stay in SQL and show gray.
 - Temporary WPF **Admin** (app admins): add user, create household, set motto, remove from household.
-- Web: letter mark + **bold motto**, Excel column layout, checkboxes, **swipe right** to remove, **Add** from the phone, **Clear completed**. Open phones update over **SignalR** (in the App Service, not a paid Azure SignalR resource). Windows capture/delete/complete pings the API so phones refresh.
+- Web: letter mark + **bold motto**, Excel column layout, checkboxes, **swipe right** to remove, **Add** from the phone, **Save**, **Refresh**, **Clear completed**. There is no live SignalR feed; opening SQL is on purpose when you tap Save or Refresh.
 
 Word and Notepad capture are not in this build.
 
 ## Run locally
 
-1. Copy `appsettings.Local.json.example` to `appsettings.Local.json` next to the Windows project and `src/api` (gitignored). Fill in Server, Database, UserId, TenantId. On Windows, `ApiBase` is the hosted API URL so Excel capture can wake phones.
+1. Copy `appsettings.Local.json.example` to `appsettings.Local.json` next to the Windows project and `src/api` (gitignored). Fill in Server, Database, UserId, TenantId.
 2. Run SQL scripts as needed (`02`, then `04`–`07` if those columns/users are missing).
 3. `dotnet run --project src/api --launch-profile http`
 4. `npm install` then `npm run dev` in `src/web`
@@ -33,7 +33,7 @@ Word and Notepad capture are not in this build.
 | Piece | Where | Cost |
 | --- | --- | --- |
 | React | Azure Static Web Apps Free → `droplist.azpcloud.com` | $0 |
-| API + SignalR | App Service Linux F1 `droplist-azpcloud-api` | $0 (sleeps when idle) |
+| API | App Service Linux F1 `droplist-azpcloud-api` | $0 (sleeps when idle) |
 | Telemetry | Application Insights in the web resource group (connection string on the App Service, not in git) | free tier unless you exceed the included volume |
 | Data | Your existing Azure SQL | existing |
 
@@ -44,11 +44,11 @@ GitHub Actions:
 
 Secrets: `AZURE_STATIC_WEB_APPS_API_TOKEN`, `AZURE_WEBAPP_PUBLISH_PROFILE`, `VITE_API_BASE`. SQL names stay in App Service settings. In Azure the API uses **Managed Identity** (run `database/07_GrantApiManagedIdentity.sql` as Entra SQL admin).
 
-### Instant updates, stateless API, observability
+### Save / refresh, stateless API, observability
 
 These are three different pieces:
 
-- **Instant (SignalR).** Open phones join a household group on the same F1 App Service (`/hubs/list`). Add, check, swipe, and clear broadcast `listChanged`; phones reload the list without a manual refresh. Excel capture on Windows POSTs `/notify` so phones update too. This is **in-process SignalR**, not a paid Azure SignalR resource. Connections live only in that one app instance; after sleep/restart, the client reconnects.
+- **Save / refresh.** There is no live SignalR feed. Windows **Save** / **Refresh** and the phone **Save** / **Refresh** buttons open SQL. Capture, Add, check, and swipe stay on the device until Save. Refresh loads the live list; completed items stay in SQL and drop off the screen.
 - **Stateless HTTP.** The API does not keep a login session store. Each request sends **email + household** and checks SQL. List data is in Azure SQL. The browser keeps `localStorage`; Windows keeps `session.bin` (DPAPI).
 - **Observability.** Application Insights on the App Service (connection string in app settings, not in git). Portal: the Insights resource in the same web resource group — **Live Metrics**, **Failures**, **Performance**, **Logs**. Local `dotnet run` does not send telemetry unless you add that setting to gitignored `appsettings.Local.json`.
 

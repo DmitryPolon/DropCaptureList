@@ -1,6 +1,5 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { apiUrl } from "./api";
-import { connectListHub } from "./live";
 import { sheetsFromItems } from "./replica";
 import { SwipeAway } from "./SwipeAway";
 import type { ListItem, Session } from "./types";
@@ -19,6 +18,10 @@ function loadSession(): Session | null {
 
 function problemMessage(body: { detail?: string; title?: string }, fallback: string) {
   return body.detail ?? body.title ?? fallback;
+}
+
+function liveItems(list: ListItem[]) {
+  return list.filter((item) => !item.isCompleted);
 }
 
 function cellStyle(item: ListItem) {
@@ -40,58 +43,24 @@ export default function App() {
   const [draft, setDraft] = useState("");
   const [items, setItems] = useState<ListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState("Tap Refresh to load the list. Add, check, and swipe stay on this phone until Save.");
   const [busy, setBusy] = useState(false);
+  const baselineRef = useRef<ListItem[]>([]);
+  const pendingCompleteRef = useRef(new Set<string>());
+  const pendingRemoveRef = useRef(new Set<string>());
   const layout = useMemo(() => sheetsFromItems(items), [items]);
 
-  useEffect(() => {
-    if (!session) {
-      return;
-    }
-    const current = session;
-    let cancelled = false;
-
-    function load(silent: boolean) {
-      if (!silent) {
-        setBusy(true);
-      }
-      fetch(apiUrl(`/api/households/${encodeURIComponent(current.household)}/items`))
-        .then(async (response) => {
-          if (!response.ok) {
-            const body = await response.json().catch(() => ({}));
-            throw new Error(problemMessage(body, "Could not load the list."));
-          }
-          return response.json() as Promise<ListItem[]>;
-        })
-        .then((list) => {
-          if (!cancelled) {
-            setItems(list);
-            setError(null);
-          }
-        })
-        .catch((err: unknown) => {
-          if (!cancelled && !silent) {
-            setError(err instanceof Error ? err.message : "Could not load the list.");
-          }
-        })
-        .finally(() => {
-          if (!cancelled && !silent) {
-            setBusy(false);
-          }
-        });
-    }
-
-    load(false);
-    const disconnect = connectListHub(current.email, current.household, () => load(true));
-    return () => {
-      cancelled = true;
-      disconnect();
-    };
-  }, [session]);
+  function resetPending() {
+    pendingCompleteRef.current = new Set();
+    pendingRemoveRef.current = new Set();
+  }
 
   function signOut() {
     localStorage.removeItem(sessionKey);
     setSession(null);
     setItems([]);
+    baselineRef.current = [];
+    resetPending();
     setError(null);
   }
 
@@ -112,6 +81,10 @@ export default function App() {
       const next = body as Session;
       localStorage.setItem(sessionKey, JSON.stringify(next));
       setSession(next);
+      setItems([]);
+      baselineRef.current = [];
+      resetPending();
+      setStatus("Signed in. Tap Refresh to load the list.");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Could not sign in.");
     } finally {
@@ -119,70 +92,184 @@ export default function App() {
     }
   }
 
-  async function postList(path: string, extra?: Record<string, string>) {
+  async function postAction(path: string, extra?: Record<string, string>) {
     if (!session) {
-      return false;
+      throw new Error("Sign in first.");
+    }
+    const response = await fetch(apiUrl(path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: session.email,
+        household: session.household,
+        ...extra
+      })
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(problemMessage(body, "Could not update the list."));
+    }
+  }
+
+  async function refresh() {
+    if (!session) {
+      return;
     }
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(apiUrl(path), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: session.email,
-          household: session.household,
-          ...extra
-        })
-      });
+      const response = await fetch(
+        apiUrl(`/api/households/${encodeURIComponent(session.household)}/items`)
+      );
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(problemMessage(body, "Could not update the list."));
+        throw new Error(problemMessage(body, "Could not load the list."));
       }
-      setItems(body as ListItem[]);
-      return true;
+      const list = liveItems(body as ListItem[]);
+      setItems(list);
+      baselineRef.current = list;
+      resetPending();
+      setStatus(
+        list.length === 0
+          ? "Live list is empty. Completed items stay in the database and are not shown."
+          : `Loaded ${list.length} live items. Completed rows are not shown.`
+      );
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Could not update the list.");
-      return false;
+      setError(err instanceof Error ? err.message : "Could not load the list.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function addItem(event: FormEvent) {
+  async function save() {
+    if (!session) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const baseline = baselineRef.current;
+      const baselineIds = new Set(baseline.map((item) => item.id));
+      let added = 0;
+      let completed = 0;
+      let removed = 0;
+
+      for (const item of items) {
+        if (!baselineIds.has(item.id) && !item.isCompleted) {
+          await postAction(`/api/households/${encodeURIComponent(session.household)}/items`, {
+            text: item.text
+          });
+          added++;
+        }
+      }
+
+      for (const id of pendingCompleteRef.current) {
+        if (baselineIds.has(id) && !pendingRemoveRef.current.has(id)) {
+          await postAction(
+            `/api/households/${encodeURIComponent(session.household)}/items/${id}/toggle`
+          );
+          completed++;
+        }
+      }
+
+      for (const id of pendingRemoveRef.current) {
+        if (baselineIds.has(id)) {
+          await postAction(
+            `/api/households/${encodeURIComponent(session.household)}/items/${id}/remove`
+          );
+          removed++;
+        }
+      }
+
+      const response = await fetch(
+        apiUrl(`/api/households/${encodeURIComponent(session.household)}/items`)
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(problemMessage(body, "Could not load the list."));
+      }
+      const list = liveItems(body as ListItem[]);
+      setItems(list);
+      baselineRef.current = list;
+      resetPending();
+      setStatus(`Saved. Added ${added}, completed ${completed}, removed ${removed}.`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not save the list.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function addItem(event: FormEvent) {
     event.preventDefault();
     const text = draft.trim();
     if (!session || !text) {
       return;
     }
-    const ok = await postList(`/api/households/${encodeURIComponent(session.household)}/items`, {
-      text
-    });
-    if (ok) {
+    if (items.some((item) => item.text.trim().toLowerCase() === text.toLowerCase())) {
+      setStatus("Duplicate records are not saved.");
       setDraft("");
+      return;
     }
+    const now = new Date().toISOString();
+    setItems((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        text,
+        nickname: session.nickname,
+        createdAt: now,
+        isCompleted: false,
+        completedByNickname: null,
+        completedAt: null,
+        excelRow: 0,
+        excelColumn: 0,
+        isBold: false,
+        fontColor: null,
+        fillColor: null
+      }
+    ]);
+    setDraft("");
+    setStatus("Added locally. Save to write the database.");
   }
 
   function toggle(item: ListItem) {
-    void postList(
-      `/api/households/${encodeURIComponent(session!.household)}/items/${item.id}/toggle`
+    const completing = !item.isCompleted;
+    setItems((current) =>
+      current.map((row) =>
+        row.id === item.id ? { ...row, isCompleted: completing } : row
+      )
     );
+    if (completing) {
+      pendingCompleteRef.current.add(item.id);
+    } else {
+      pendingCompleteRef.current.delete(item.id);
+    }
+    setStatus("Check stays on this phone until Save.");
   }
 
   function removeItem(item: ListItem) {
-    void postList(
-      `/api/households/${encodeURIComponent(session!.household)}/items/${item.id}/remove`
-    );
+    pendingRemoveRef.current.add(item.id);
+    pendingCompleteRef.current.delete(item.id);
+    setItems((current) => current.filter((row) => row.id !== item.id));
+    setStatus("Removed locally. Save to write the database.");
   }
 
   function clearCompleted() {
-    if (!session || !items.some((item) => item.isCompleted)) {
+    if (!items.some((item) => item.isCompleted)) {
       return;
     }
-    if (!window.confirm("Remove completed items from the live list? They stay in the database.")) {
+    if (!window.confirm("Hide completed items on this phone? Save writes them as done in the database.")) {
       return;
     }
-    void postList(`/api/households/${encodeURIComponent(session.household)}/completed/clear`);
+    const baselineIds = new Set(baselineRef.current.map((item) => item.id));
+    for (const item of items) {
+      if (item.isCompleted && baselineIds.has(item.id)) {
+        pendingCompleteRef.current.add(item.id);
+      }
+    }
+    setItems((current) => current.filter((item) => !item.isCompleted));
+    setStatus("Completed items hidden here. Save to write the database.");
   }
 
   if (!session) {
@@ -226,6 +313,12 @@ export default function App() {
       <header className="top">
         <p className="eyebrow">DropCaptureList</p>
         <div className="top-actions">
+          <button type="button" className="text-button" onClick={() => void refresh()} disabled={busy}>
+            Refresh
+          </button>
+          <button type="button" className="text-button" onClick={() => void save()} disabled={busy}>
+            Save
+          </button>
           {items.some((item) => item.isCompleted) ? (
             <button type="button" className="text-button" onClick={clearCompleted} disabled={busy}>
               Clear completed
@@ -251,6 +344,7 @@ export default function App() {
         </div>
       </section>
       {error ? <p className="error">{error}</p> : null}
+      <p className="hint">{status}</p>
 
       {layout.sheets.map((sheet) => (
         <div
@@ -316,9 +410,9 @@ export default function App() {
       ) : null}
 
       {!busy && items.length === 0 ? (
-        <p className="hint">No items yet. Add a task below, or capture cells from Excel on Windows.</p>
+        <p className="hint">No items on this phone yet. Refresh to load, or Add a task and Save.</p>
       ) : (
-        <p className="hint">Swipe right on an item to remove it. Check the box when it is done.</p>
+        <p className="hint">Swipe right to remove. Check the box when it is done. Save writes the database.</p>
       )}
 
       <form className="composer" onSubmit={addItem}>
@@ -336,6 +430,9 @@ export default function App() {
         </label>
         <button type="submit" disabled={busy || !draft.trim()}>
           Add
+        </button>
+        <button type="button" disabled={busy} onClick={() => void save()}>
+          Save
         </button>
       </form>
     </main>

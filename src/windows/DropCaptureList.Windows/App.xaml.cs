@@ -79,7 +79,7 @@ public partial class App : Application
 
     private void ShowMain(UserSession session)
     {
-        var mainVm = new MainViewModel(session, _captures, _excel, _sessions, _identity, new ListSyncClient(AppConfiguration.LoadApiBase()));
+        var mainVm = new MainViewModel(session, _captures, _excel, _sessions, _identity);
         var main = new MainWindow(mainVm);
         mainVm.SignedOut += (_, _) =>
         {

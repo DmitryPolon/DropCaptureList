@@ -18,6 +18,8 @@ public interface ICaptureService
 {
     IReadOnlyList<CapturedItem> GetItems(Guid tenantId);
     IReadOnlyList<CapturedItem> AddExcelCells(UserSession session, IEnumerable<ExcelCellText> cells);
+    CaptureSaveResult SaveItems(UserSession session, IReadOnlyList<CapturedItem> items);
     int DeleteItems(Guid tenantId, IEnumerable<Guid> itemIds);
     int CompleteHousehold(Guid tenantId, Guid completedByUserId);
+    int PurgeCompletedOlderThanOneMonth();
 }

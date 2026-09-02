@@ -26,16 +26,13 @@ builder.Services.AddCors(options =>
                 || origin.StartsWith("http://localhost:", StringComparison.OrdinalIgnoreCase)
                 || origin.StartsWith("http://127.0.0.1:", StringComparison.OrdinalIgnoreCase))
             .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials());
+            .AllowAnyMethod());
 });
 
-builder.Services.AddSignalR();
 builder.Services.AddSingleton(sql);
 builder.Services.AddSingleton<AzureSql>();
 builder.Services.AddSingleton<Households>();
 builder.Services.AddSingleton<AppDirectory>();
-builder.Services.AddSingleton<ListRealtime>();
 
 var app = builder.Build();
 app.UseCors();
@@ -97,40 +94,10 @@ app.MapGet("/api/households/{household}/items", (string household, AppDirectory 
     }
 });
 
-app.MapPost("/api/households/{household}/notify", async (
-    string household,
-    SignInRequest body,
-    AppDirectory directory,
-    ListRealtime realtime,
-    ILogger<Program> log) =>
-{
-    try
-    {
-        if (!string.Equals(body.Household, household, StringComparison.OrdinalIgnoreCase))
-        {
-            return Results.Problem("Household does not match.", statusCode: 400);
-        }
-
-        directory.SignIn(body.Email, household);
-        await realtime.NotifyAsync(household);
-        return Results.Ok(new { ok = true });
-    }
-    catch (InvalidOperationException ex)
-    {
-        return Results.Problem(ex.Message, statusCode: 400);
-    }
-    catch (Exception ex)
-    {
-        log.LogError(ex, "Notify failed for {Household}.", household);
-        return Results.Problem("Could not notify the household.", statusCode: 503);
-    }
-});
-
-app.MapPost("/api/households/{household}/items", async (
+app.MapPost("/api/households/{household}/items", (
     string household,
     AddItemRequest body,
     AppDirectory directory,
-    ListRealtime realtime,
     ILogger<Program> log) =>
 {
     try
@@ -141,7 +108,6 @@ app.MapPost("/api/households/{household}/items", async (
         }
 
         directory.AddTextItem(body.Email, household, body.Text);
-        await realtime.NotifyAsync(household);
         return Results.Ok(directory.ListItems(household));
     }
     catch (InvalidOperationException ex)
@@ -155,12 +121,11 @@ app.MapPost("/api/households/{household}/items", async (
     }
 });
 
-app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", async (
+app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", (
     string household,
     Guid itemId,
     SignInRequest body,
     AppDirectory directory,
-    ListRealtime realtime,
     ILogger<Program> log) =>
 {
     try
@@ -171,7 +136,6 @@ app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", async (
         }
 
         directory.ToggleComplete(body.Email, household, itemId);
-        await realtime.NotifyAsync(household);
         return Results.Ok(directory.ListItems(household));
     }
     catch (InvalidOperationException ex)
@@ -185,12 +149,11 @@ app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", async (
     }
 });
 
-app.MapPost("/api/households/{household}/items/{itemId:guid}/remove", async (
+app.MapPost("/api/households/{household}/items/{itemId:guid}/remove", (
     string household,
     Guid itemId,
     SignInRequest body,
     AppDirectory directory,
-    ListRealtime realtime,
     ILogger<Program> log) =>
 {
     try
@@ -201,7 +164,6 @@ app.MapPost("/api/households/{household}/items/{itemId:guid}/remove", async (
         }
 
         directory.SoftDelete(body.Email, household, itemId);
-        await realtime.NotifyAsync(household);
         return Results.Ok(directory.ListItems(household));
     }
     catch (InvalidOperationException ex)
@@ -215,11 +177,10 @@ app.MapPost("/api/households/{household}/items/{itemId:guid}/remove", async (
     }
 });
 
-app.MapPost("/api/households/{household}/completed/clear", async (
+app.MapPost("/api/households/{household}/completed/clear", (
     string household,
     SignInRequest body,
     AppDirectory directory,
-    ListRealtime realtime,
     ILogger<Program> log) =>
 {
     try
@@ -230,7 +191,6 @@ app.MapPost("/api/households/{household}/completed/clear", async (
         }
 
         directory.ClearCompleted(body.Email, household);
-        await realtime.NotifyAsync(household);
         return Results.Ok(directory.ListItems(household));
     }
     catch (InvalidOperationException ex)
@@ -244,7 +204,6 @@ app.MapPost("/api/households/{household}/completed/clear", async (
     }
 });
 
-app.MapHub<ListHub>("/hubs/list");
 app.Run();
 
 public sealed record SignInRequest(string Email, string Household);
