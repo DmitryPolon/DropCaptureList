@@ -30,11 +30,45 @@ public sealed class AzureSql
                 "SQL is not configured. Copy appsettings.Local.json.example to appsettings.Local.json next to the API project.");
         }
 
-        var connection = new SqlConnection(
-            $"Server={_settings.Server};Database={_settings.Database};Encrypt=True;TrustServerCertificate=False;Pooling=False;");
-        connection.AccessToken = CurrentToken();
-        connection.Open();
-        return connection;
+        const string extras = "Encrypt=True;TrustServerCertificate=False;Pooling=False;Connect Timeout=90;ConnectRetryCount=6;ConnectRetryInterval=10;";
+        SqlException? last = null;
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var connection = new SqlConnection($"Server={_settings.Server};Database={_settings.Database};{extras}");
+            try
+            {
+                connection.AccessToken = CurrentToken();
+                connection.Open();
+                return connection;
+            }
+            catch (SqlException ex) when (IsResumeWait(ex) && attempt < 7)
+            {
+                last = ex;
+                connection.Dispose();
+                Thread.Sleep(TimeSpan.FromSeconds(5 + attempt * 3));
+            }
+            catch
+            {
+                connection.Dispose();
+                throw;
+            }
+        }
+
+        throw last!;
+    }
+
+    private static bool IsResumeWait(SqlException ex)
+    {
+        foreach (SqlError error in ex.Errors)
+        {
+            if (error.Number is 40613 or 40197 or 40501 or 49918 or 49919 or 49920 or 4221
+                or 10928 or 10929 or 4060 or 10060 or 10054 or 64 or 233 or -2)
+            {
+                return true;
+            }
+        }
+
+        return ex.Number is 40613 or -2;
     }
 
     private string CurrentToken()

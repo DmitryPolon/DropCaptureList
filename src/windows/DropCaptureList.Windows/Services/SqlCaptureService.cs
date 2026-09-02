@@ -225,17 +225,25 @@ public sealed class SqlCaptureService : ICaptureService
         return completed;
     }
 
-    public AdminSnapshot GetAdminSnapshot()
+    public AdminSnapshot GetVCoreSnapshot()
+    {
+        var (remaining, sampledAt, vcoreError) = _connections.TryReadFreeVCoreSeconds();
+        return new AdminSnapshot
+        {
+            VCoreRemaining = remaining,
+            VCoreSampledAt = sampledAt,
+            VCoreError = vcoreError
+        };
+    }
+
+    public AdminSnapshot GetSqlUsageSnapshot()
     {
         using var connection = _connections.Open();
         var used = ReadUsedBytes(connection);
         var (household, cleared, approximate) = ReadLastCleared(connection);
-        var (remaining, vcoreError) = _connections.TryReadFreeVCoreSeconds();
         return new AdminSnapshot
         {
             DataUsedBytes = used,
-            VCoreRemaining = remaining,
-            VCoreError = vcoreError,
             LastClearedAt = cleared,
             LastClearedHousehold = household,
             LastClearedIsApproximate = approximate

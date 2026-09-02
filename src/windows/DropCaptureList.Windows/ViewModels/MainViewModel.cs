@@ -14,13 +14,16 @@ public sealed class MainViewModel : ViewModelBase
     private readonly HashSet<Guid> _persistedIds = [];
     private UserSession _session;
     private LocalTenant? _selectedHousehold;
-    private string _statusMessage = "Capture adds cells locally. Save writes the database. Refresh loads the live list (completed items stay in SQL and drop off here). Double-click a cell to edit.";
+    private string _statusMessage = OfflineStatus;
     private bool _showHouseholdSwitcher;
     private ReplicaCell? _editingCell;
     private string _textBeforeEdit = string.Empty;
     private bool _suppressHouseholdBinding;
     private bool _ignoreLostFocus;
     private int _lastPurgeCount;
+
+    private const string OfflineStatus =
+        "Offline until you Save or Refresh. Capture stays on this PC; those buttons wake Azure SQL (paused databases take up to a minute).";
 
     private double _cellWidth = 100;
 
@@ -47,6 +50,7 @@ public sealed class MainViewModel : ViewModelBase
         Households = new ObservableCollection<LocalTenant>();
         Items = new ObservableCollection<CapturedItem>();
         ReplicaRows = new ObservableCollection<ReplicaRow>();
+        ApplyRememberedHousehold();
     }
 
     public IIdentityService Identity => _identity;
@@ -100,7 +104,10 @@ public sealed class MainViewModel : ViewModelBase
             };
             _sessions.Save(_session);
             RaisePropertyChanged(nameof(HouseholdLabel));
-            RefreshFromDatabase();
+            Items.Clear();
+            _persistedIds.Clear();
+            RebuildReplica();
+            StatusMessage = $"Switched to {value.Name}. Refresh to load that list (connects to Azure SQL).";
         }
     }
 
@@ -266,13 +273,16 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-    private void SaveToDatabase()
+    private async void SaveToDatabase()
     {
         try
         {
             EndEdit();
-            var result = _captures.SaveItems(_session, Items.ToList());
-            RefreshFromDatabase();
+            StatusMessage = "Connecting to Azure SQL (paused databases take up to a minute)…";
+            var session = _session;
+            var snapshot = Items.ToList();
+            var result = await Task.Run(() => _captures.SaveItems(session, snapshot));
+            await ReloadLiveListAsync();
             var extra = _lastPurgeCount > 0 ? $" Removed {_lastPurgeCount} completed item(s) older than a month." : "";
             StatusMessage = result.DuplicatesSkipped == 0
                 ? $"Saved {result.Inserted} new, {result.Updated} edited.{extra}"
@@ -284,27 +294,18 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-    private void RefreshFromDatabase()
+    private async void RefreshFromDatabase()
     {
         try
         {
             EndEdit();
-            var purged = MaybePurgeOldCompleted();
-            _lastPurgeCount = purged;
-            Items.Clear();
-            _persistedIds.Clear();
-            foreach (var item in _captures.GetItems(_session.TenantId))
-            {
-                Items.Add(item);
-                _persistedIds.Add(item.Id);
-            }
-
-            RebuildReplica();
+            StatusMessage = "Connecting to Azure SQL (paused databases take up to a minute)…";
+            await ReloadLiveListAsync();
             var loaded = Items.Count == 0
                 ? "Live list is empty. Completed items are not shown."
                 : $"Loaded {Items.Count} live items. Completed rows from the database are not shown.";
-            StatusMessage = purged > 0
-                ? $"Removed {purged} completed item(s) older than a month. {loaded}"
+            StatusMessage = _lastPurgeCount > 0
+                ? $"Removed {_lastPurgeCount} completed item(s) older than a month. {loaded}"
                 : loaded;
         }
         catch (Exception ex)
@@ -313,7 +314,30 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-    public void DeleteItems(IEnumerable<CapturedItem> selected)
+    private async Task ReloadLiveListAsync()
+    {
+        var session = _session;
+        var pack = await Task.Run(() =>
+        {
+            var purged = MaybePurgeOldCompleted();
+            var items = _captures.GetItems(session.TenantId).ToList();
+            var households = _identity.GetHouseholdsForUser(session.UserId).ToList();
+            return (purged, items, households);
+        });
+        _lastPurgeCount = pack.purged;
+        ReloadHouseholds(pack.households);
+        Items.Clear();
+        _persistedIds.Clear();
+        foreach (var item in pack.items)
+        {
+            Items.Add(item);
+            _persistedIds.Add(item.Id);
+        }
+
+        RebuildReplica();
+    }
+
+    public async void DeleteItems(IEnumerable<CapturedItem> selected)
     {
         try
         {
@@ -328,7 +352,9 @@ public sealed class MainViewModel : ViewModelBase
             var persisted = selectedItems.Where(i => _persistedIds.Contains(i.Id)).Select(i => i.Id).ToList();
             if (persisted.Count > 0)
             {
-                _captures.DeleteItems(_session.TenantId, persisted);
+                StatusMessage = "Connecting to Azure SQL (paused databases take up to a minute)…";
+                var tenantId = _session.TenantId;
+                await Task.Run(() => _captures.DeleteItems(tenantId, persisted));
             }
 
             var remove = selectedItems.Select(i => i.Id).ToHashSet();
@@ -350,13 +376,15 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-    private void ClearHousehold()
+    private async void ClearHousehold()
     {
         try
         {
             EndEdit();
-            var completed = _captures.CompleteHousehold(_session.TenantId, _session.UserId);
-            RefreshFromDatabase();
+            StatusMessage = "Connecting to Azure SQL (paused databases take up to a minute)…";
+            var session = _session;
+            var completed = await Task.Run(() => _captures.CompleteHousehold(session.TenantId, session.UserId));
+            await ReloadLiveListAsync();
             StatusMessage = completed == 0
                 ? "Nothing left to complete."
                 : $"Marked {completed} items completed. Refresh dropped them from this list.";
@@ -380,9 +408,17 @@ public sealed class MainViewModel : ViewModelBase
 
     public void LoadFromStore()
     {
+        ApplyRememberedHousehold();
+        StatusMessage = OfflineStatus;
+    }
+
+    public async void LoadHouseholdsAfterAdmin()
+    {
         try
         {
-            ReloadHouseholds();
+            var userId = _session.UserId;
+            var households = await Task.Run(() => _identity.GetHouseholdsForUser(userId).ToList());
+            ReloadHouseholds(households);
         }
         catch (Exception ex)
         {
@@ -396,13 +432,25 @@ public sealed class MainViewModel : ViewModelBase
         SignedOut?.Invoke(this, EventArgs.Empty);
     }
 
-    private void ReloadHouseholds()
+    private void ApplyRememberedHousehold()
+    {
+        ReloadHouseholds(
+        [
+            new LocalTenant
+            {
+                Id = _session.TenantId,
+                Name = _session.TenantName
+            }
+        ]);
+    }
+
+    private void ReloadHouseholds(IReadOnlyList<LocalTenant> households)
     {
         _suppressHouseholdBinding = true;
         try
         {
             Households.Clear();
-            foreach (var household in _identity.GetHouseholdsForUser(_session.UserId))
+            foreach (var household in households)
             {
                 Households.Add(household);
             }

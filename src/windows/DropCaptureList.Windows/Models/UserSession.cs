@@ -28,6 +28,7 @@ public sealed class AdminSnapshot
     public long DataUsedBytes { get; init; }
     public double DataUsedPercent => FreeStorageBytes <= 0 ? 0 : Math.Min(100, DataUsedBytes * 100.0 / FreeStorageBytes);
     public double? VCoreRemaining { get; init; }
+    public DateTimeOffset? VCoreSampledAt { get; init; }
     public string? VCoreError { get; init; }
     public DateTimeOffset? LastClearedAt { get; init; }
     public string? LastClearedHousehold { get; init; }

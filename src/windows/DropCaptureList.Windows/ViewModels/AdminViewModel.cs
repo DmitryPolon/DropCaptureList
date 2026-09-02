@@ -3,6 +3,7 @@ using DropCaptureList.Windows.Models;
 using DropCaptureList.Windows.Services;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Linq;
 
 namespace DropCaptureList.Windows.ViewModels;
 
@@ -21,9 +22,10 @@ public sealed class AdminViewModel : ViewModelBase
     private string _removeHouseholdName = string.Empty;
     private AdminUserRow? _selectedUser;
     private string _statusMessage = "Full admin (reports, users) will live on the web app. This window is a temporary helper.";
-    private string _dataUsedLabel = "Data used: …";
+    private string _dataUsedLabel = "Data used: not loaded.";
     private string _vCoreLabel = "Free compute: …";
-    private string _lastClearedLabel = "Last cleared: …";
+    private string _lastClearedLabel = "Last cleared: not loaded.";
+    private bool _sqlBusy;
 
     public AdminViewModel(IIdentityService identity, ICaptureService captures)
     {
@@ -34,10 +36,13 @@ public sealed class AdminViewModel : ViewModelBase
         CreateHouseholdCommand = new RelayCommand(CreateHousehold);
         SaveMottoCommand = new RelayCommand(SaveMotto);
         RemoveFromHouseholdCommand = new RelayCommand(RemoveFromHousehold);
-        Reload();
+        LoadSqlDetailsCommand = new RelayCommand(LoadSqlDetails, () => !_sqlBusy);
+        LoadVCore();
     }
 
     public ObservableCollection<AdminUserRow> Users { get; }
+
+    public bool SqlWasUsed { get; private set; }
 
     public string WebAppUrl => AdminSnapshot.WebAppUrl;
 
@@ -129,47 +134,87 @@ public sealed class AdminViewModel : ViewModelBase
     public RelayCommand CreateHouseholdCommand { get; }
     public RelayCommand SaveMottoCommand { get; }
     public RelayCommand RemoveFromHouseholdCommand { get; }
+    public RelayCommand LoadSqlDetailsCommand { get; }
 
-    private void Reload()
+    private async void LoadVCore()
     {
-        Users.Clear();
-        foreach (var user in _identity.ListUsers())
-        {
-            Users.Add(user);
-        }
-
+        VCoreLabel = "Free compute: …";
         try
         {
-            var snap = _captures.GetAdminSnapshot();
-            var mb = snap.DataUsedBytes / (1024.0 * 1024.0);
-            DataUsedLabel =
-                $"Data used: {snap.DataUsedPercent.ToString("0.###", CultureInfo.CurrentCulture)}% of 32 GB free ({mb.ToString("0.0", CultureInfo.CurrentCulture)} MB)";
-            if (snap.VCoreRemaining is { } left)
+            var snap = await Task.Run(() => _captures.GetVCoreSnapshot());
+            ApplyVCore(snap);
+        }
+        catch (Exception ex)
+        {
+            VCoreLabel = $"Free compute: {ex.Message}";
+        }
+    }
+
+    private async void LoadSqlDetails()
+    {
+        _sqlBusy = true;
+        LoadSqlDetailsCommand.RaiseCanExecuteChanged();
+        SqlWasUsed = true;
+        DataUsedLabel = "Data used: connecting to Azure SQL…";
+        LastClearedLabel = "Last cleared: connecting to Azure SQL…";
+        StatusMessage = "Connecting to Azure SQL (paused databases take up to a minute)…";
+        try
+        {
+            var users = await Task.Run(() => _identity.ListUsers().ToList());
+            var snap = await Task.Run(() => _captures.GetSqlUsageSnapshot());
+            Users.Clear();
+            foreach (var user in users)
             {
-                var usedPct = Math.Max(0, (AdminSnapshot.FreeVCoreSeconds - left) * 100.0 / AdminSnapshot.FreeVCoreSeconds);
-                VCoreLabel =
-                    $"Free compute: {usedPct.ToString("0.###", CultureInfo.CurrentCulture)}% of 100,000 vCore-seconds used ({left.ToString("N0", CultureInfo.CurrentCulture)} left this month)";
+                Users.Add(user);
             }
-            else
-            {
-                VCoreLabel = snap.VCoreError is { Length: > 0 } ? $"Free compute: {snap.VCoreError}" : "Free compute: not available.";
-            }
-            if (snap.LastClearedAt is { } at)
-            {
-                var who = string.IsNullOrWhiteSpace(snap.LastClearedHousehold) ? "a household" : snap.LastClearedHousehold;
-                var note = snap.LastClearedIsApproximate ? " (last completed item; run database/08 then Clear list for an exact stamp)" : "";
-                LastClearedLabel = $"Last cleared: {who} · {at.ToLocalTime():g}{note}";
-            }
-            else
-            {
-                LastClearedLabel = "Last cleared: not recorded yet. Use Clear list after running database/08.";
-            }
+
+            ApplySqlUsage(snap);
+            StatusMessage = "Loaded storage, last cleared, and users from SQL.";
         }
         catch (Exception ex)
         {
             DataUsedLabel = "Data used: could not read.";
-            VCoreLabel = "Free compute: could not read.";
             LastClearedLabel = ex.Message;
+            StatusMessage = ex.Message;
+        }
+        finally
+        {
+            _sqlBusy = false;
+            LoadSqlDetailsCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    private void ApplyVCore(AdminSnapshot snap)
+    {
+        if (snap.VCoreRemaining is { } left)
+        {
+            var usedPct = Math.Max(0, (AdminSnapshot.FreeVCoreSeconds - left) * 100.0 / AdminSnapshot.FreeVCoreSeconds);
+            var sample = snap.VCoreSampledAt is { } at
+                ? $" · Azure sample {at.ToLocalTime():g}"
+                : "";
+            VCoreLabel =
+                $"Free compute: {usedPct.ToString("0.#", CultureInfo.CurrentCulture)}% of 100,000 vCore-seconds used ({left.ToString("N0", CultureInfo.CurrentCulture)} left this month){sample}";
+        }
+        else
+        {
+            VCoreLabel = snap.VCoreError is { Length: > 0 } ? $"Free compute: {snap.VCoreError}" : "Free compute: not available.";
+        }
+    }
+
+    private void ApplySqlUsage(AdminSnapshot snap)
+    {
+        var mb = snap.DataUsedBytes / (1024.0 * 1024.0);
+        DataUsedLabel =
+            $"Data used: {snap.DataUsedPercent.ToString("0.###", CultureInfo.CurrentCulture)}% of 32 GB free ({mb.ToString("0.0", CultureInfo.CurrentCulture)} MB)";
+        if (snap.LastClearedAt is { } cleared)
+        {
+            var who = string.IsNullOrWhiteSpace(snap.LastClearedHousehold) ? "a household" : snap.LastClearedHousehold;
+            var note = snap.LastClearedIsApproximate ? " (last completed item; run database/08 then Clear list for an exact stamp)" : "";
+            LastClearedLabel = $"Last cleared: {who} · {cleared.ToLocalTime():g}{note}";
+        }
+        else
+        {
+            LastClearedLabel = "Last cleared: not recorded yet. Use Clear list after running database/08.";
         }
     }
 
@@ -177,12 +222,13 @@ public sealed class AdminViewModel : ViewModelBase
     {
         try
         {
+            SqlWasUsed = true;
             _identity.AddUser(NewEmail, NewNickname, NewHousehold, NewNickname, NewIsAppAdmin);
             StatusMessage = "User added.";
             NewEmail = string.Empty;
             NewNickname = string.Empty;
             NewIsAppAdmin = false;
-            Reload();
+            LoadSqlDetails();
         }
         catch (Exception ex)
         {
@@ -194,11 +240,12 @@ public sealed class AdminViewModel : ViewModelBase
     {
         try
         {
+            SqlWasUsed = true;
             _identity.CreateHousehold(NewHouseholdName, NewHouseholdMotto);
             StatusMessage = "Household created.";
             NewHouseholdName = string.Empty;
             NewHouseholdMotto = string.Empty;
-            Reload();
+            LoadSqlDetails();
         }
         catch (Exception ex)
         {
@@ -210,9 +257,10 @@ public sealed class AdminViewModel : ViewModelBase
     {
         try
         {
+            SqlWasUsed = true;
             _identity.SetHouseholdMotto(MottoHouseholdName, MottoText);
             StatusMessage = string.IsNullOrWhiteSpace(MottoText) ? "Motto cleared." : "Motto saved.";
-            Reload();
+            LoadSqlDetails();
         }
         catch (Exception ex)
         {
@@ -229,9 +277,10 @@ public sealed class AdminViewModel : ViewModelBase
                 throw new InvalidOperationException("Select a user in the list.");
             }
 
+            SqlWasUsed = true;
             _identity.RemoveFromHousehold(SelectedUser.UserId, RemoveHouseholdName);
             StatusMessage = "Removed from household.";
-            Reload();
+            LoadSqlDetails();
         }
         catch (Exception ex)
         {

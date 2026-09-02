@@ -21,8 +21,13 @@
             <Border Grid.Row="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" Padding="12" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="Usage (free SQL)" FontWeight="SemiBold"/>
-                    <TextBlock Margin="0,6,0,0" Text="{Binding DataUsedLabel}"/>
-                    <TextBlock Margin="0,4,0,0" Text="{Binding VCoreLabel}" TextWrapping="Wrap"/>
+                    <TextBlock Margin="0,6,0,0" Text="{Binding VCoreLabel}" TextWrapping="Wrap"/>
+                    <Button Content="Show storage and last cleared"
+                            Margin="0,10,0,0"
+                            HorizontalAlignment="Left"
+                            Padding="10,4"
+                            Command="{Binding LoadSqlDetailsCommand}"/>
+                    <TextBlock Margin="0,8,0,0" Text="{Binding DataUsedLabel}"/>
                     <TextBlock Margin="0,4,0,0" Text="{Binding LastClearedLabel}" TextWrapping="Wrap"/>
                     <TextBlock Margin="0,8,0,0">
                         <Run Text="Web app: "/>
@@ -31,7 +36,7 @@
                         </Hyperlink>
                     </TextBlock>
                     <TextBlock Margin="0,6,0,0" Foreground="#64748B" FontSize="11" TextWrapping="Wrap"
-                               Text="Storage % is of the 32 GB free cap. Last cleared is Windows Clear list (run database/08 once so the stamp is stored). Opening Admin uses SQL once."/>
+                               Text="vCore % comes from Azure Monitor and does not wake SQL. Storage, last cleared, and the user list use SQL — only the button above, or Add / Create / motto / Remove."/>
                 </StackPanel>
             </Border>
 

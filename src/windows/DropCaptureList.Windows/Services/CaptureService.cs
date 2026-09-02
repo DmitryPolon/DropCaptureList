@@ -174,7 +174,15 @@ public sealed class CaptureService : ICaptureService
         return n;
     }
 
-    public AdminSnapshot GetAdminSnapshot()
+    public AdminSnapshot GetVCoreSnapshot()
+    {
+        return new AdminSnapshot
+        {
+            VCoreError = "Local JSON store has no Azure vCore meter."
+        };
+    }
+
+    public AdminSnapshot GetSqlUsageSnapshot()
     {
         var db = _store.Load();
         var used = db.Items.Sum(i => (i.Text?.Length ?? 0) * 2L);
@@ -185,7 +193,6 @@ public sealed class CaptureService : ICaptureService
         return new AdminSnapshot
         {
             DataUsedBytes = used,
-            VCoreError = "Local JSON store has no Azure vCore meter.",
             LastClearedAt = last?.LastClearedAt,
             LastClearedHousehold = last?.Name,
             LastClearedIsApproximate = false
