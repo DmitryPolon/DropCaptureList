@@ -494,9 +494,17 @@ export default function App() {
       ) : null}
 
       {!busy && items.length === 0 ? (
-        <p className="hint">No items on this phone yet. Refresh to load, or Add a task and Save.</p>
+        <p className="hint">
+          {fileMode
+            ? "No items yet. Add a task — it is written for everyone."
+            : "No items on this phone yet. Refresh to load, or Add a task and Save."}
+        </p>
       ) : (
-        <p className="hint">Swipe right to remove. Check the box when it is done. Save writes the database.</p>
+        <p className="hint">
+          {fileMode
+            ? "Swipe right to remove. Check the box when it is done. Changes are live."
+            : "Swipe right to remove. Check the box when it is done. Save writes the database."}
+        </p>
       )}
 
       <form className="composer" onSubmit={addItem}>
@@ -515,9 +523,11 @@ export default function App() {
         <button type="submit" disabled={busy || !draft.trim()}>
           Add
         </button>
-        <button type="button" disabled={busy} onClick={() => void save()}>
-          Save
-        </button>
+        {fileMode ? null : (
+          <button type="button" disabled={busy} onClick={() => void save()}>
+            Save
+          </button>
+        )}
       </form>
     </main>
   );

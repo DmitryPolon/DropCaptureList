@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Windows;
 using DropCaptureList.Windows.Helpers;
 using DropCaptureList.Windows.Models;
 using DropCaptureList.Windows.Services;
@@ -13,6 +14,7 @@ public sealed class MainViewModel : ViewModelBase
     private readonly IIdentityService _identity;
     private readonly StorageModeClient _storageMode;
     private readonly ApiBackend? _api;
+    private readonly FileListListener _live = new();
     private readonly HashSet<Guid> _persistedIds = [];
     private UserSession _session;
     private LocalTenant? _selectedHousehold;
@@ -123,7 +125,8 @@ public sealed class MainViewModel : ViewModelBase
             Items.Clear();
             _persistedIds.Clear();
             RebuildReplica();
-            StatusMessage = $"Switched to {value.Name}. Refresh to load that list (connects to Azure SQL).";
+            StatusMessage = $"Switched to {value.Name}. Loading that list…";
+            _ = StartFileLiveAsync();
         }
     }
 
@@ -294,7 +297,7 @@ public sealed class MainViewModel : ViewModelBase
         try
         {
             EndEdit();
-            StatusMessage = "Connecting to Azure SQL (paused databases take up to a minute)…";
+            StatusMessage = ConnectingStatus();
             var session = _session;
             var snapshot = Items.ToList();
             var result = await Task.Run(() => _captures.SaveItems(session, snapshot));
@@ -315,7 +318,7 @@ public sealed class MainViewModel : ViewModelBase
         try
         {
             EndEdit();
-            StatusMessage = "Connecting to Azure SQL (paused databases take up to a minute)…";
+            StatusMessage = ConnectingStatus();
             await ReloadLiveListAsync();
             var loaded = Items.Count == 0
                 ? "Live list is empty. Completed items are not shown."
@@ -368,7 +371,7 @@ public sealed class MainViewModel : ViewModelBase
             var persisted = selectedItems.Where(i => _persistedIds.Contains(i.Id)).Select(i => i.Id).ToList();
             if (persisted.Count > 0)
             {
-                StatusMessage = "Connecting to Azure SQL (paused databases take up to a minute)…";
+                StatusMessage = ConnectingStatus();
                 var tenantId = _session.TenantId;
                 await Task.Run(() => _captures.DeleteItems(tenantId, persisted));
             }
@@ -397,7 +400,7 @@ public sealed class MainViewModel : ViewModelBase
         try
         {
             EndEdit();
-            StatusMessage = "Connecting to Azure SQL (paused databases take up to a minute)…";
+            StatusMessage = ConnectingStatus();
             var session = _session;
             var completed = await Task.Run(() => _captures.CompleteHousehold(session.TenantId, session.UserId));
             await ReloadLiveListAsync();
@@ -426,6 +429,76 @@ public sealed class MainViewModel : ViewModelBase
     {
         ApplyRememberedHousehold();
         StatusMessage = OfflineStatus;
+        _ = StartFileLiveAsync();
+    }
+
+    private string ConnectingStatus()
+    {
+        return _storageMode.IsFile
+            ? "Updating the file list…"
+            : "Connecting to Azure SQL (paused databases take up to a minute)…";
+    }
+
+    private async Task StartFileLiveAsync()
+    {
+        var apiBase = AppConfiguration.LoadApiBase();
+        try
+        {
+            _storageMode.Refresh();
+        }
+        catch
+        {
+        }
+
+        if (!_storageMode.IsFile || string.IsNullOrWhiteSpace(apiBase))
+        {
+            await _live.Stop();
+            return;
+        }
+
+        try
+        {
+            await _live.Start(apiBase, _session.TenantName, OnFileListChanged);
+            await ReloadKeepingLocalAsync();
+            StatusMessage = "File mode. Phone adds show here. Capture still needs Save.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+        }
+    }
+
+    private void OnFileListChanged()
+    {
+        Application.Current?.Dispatcher.BeginInvoke(async () =>
+        {
+            try
+            {
+                await ReloadKeepingLocalAsync();
+                StatusMessage = "List updated from the file (phone or another window).";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+            }
+        });
+    }
+
+    private async Task ReloadKeepingLocalAsync()
+    {
+        var local = Items.Where(i => !_persistedIds.Contains(i.Id)).ToList();
+        await ReloadLiveListAsync();
+        foreach (var item in local)
+        {
+            if (Items.Any(i => i.Id == item.Id || string.Equals(i.Text.Trim(), item.Text.Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            Items.Add(item);
+        }
+
+        RebuildReplica();
     }
 
     public async void LoadHouseholdsAfterAdmin()
@@ -435,6 +508,7 @@ public sealed class MainViewModel : ViewModelBase
             var userId = _session.UserId;
             var households = await Task.Run(() => _identity.GetHouseholdsForUser(userId).ToList());
             ReloadHouseholds(households);
+            await StartFileLiveAsync();
         }
         catch (Exception ex)
         {
@@ -444,6 +518,7 @@ public sealed class MainViewModel : ViewModelBase
 
     private void SignOut()
     {
+        _ = _live.Stop();
         _sessions.Clear();
         SignedOut?.Invoke(this, EventArgs.Empty);
     }

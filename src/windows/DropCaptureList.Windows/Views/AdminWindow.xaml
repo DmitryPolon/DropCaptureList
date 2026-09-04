@@ -8,17 +8,10 @@
     <DockPanel Margin="16">
         <TextBlock DockPanel.Dock="Bottom" Text="{Binding StatusMessage}" Foreground="#B91C1C" Margin="0,12,0,0" TextWrapping="Wrap"/>
 
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
+        <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel>
 
-            <Border Grid.Row="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" Padding="12" Margin="0,0,0,16">
+            <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" Padding="12" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="Storage" FontWeight="SemiBold"/>
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
@@ -52,7 +45,7 @@
                 </StackPanel>
             </Border>
 
-            <StackPanel Grid.Row="1">
+            <StackPanel>
                 <TextBlock Text="Create household" FontWeight="SemiBold"/>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,4">
                     <TextBox Text="{Binding NewHouseholdName, UpdateSourceTrigger=PropertyChanged}" Width="180"/>
@@ -62,7 +55,7 @@
                 <TextBlock Text="Name · motto (optional). The motto is shown on the web app, not in Excel capture." Foreground="#64748B" FontSize="11" Margin="0,0,0,12"/>
             </StackPanel>
 
-            <StackPanel Grid.Row="2">
+            <StackPanel>
                 <TextBlock Text="Household motto" FontWeight="SemiBold"/>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,4">
                     <TextBox Text="{Binding MottoHouseholdName, UpdateSourceTrigger=PropertyChanged}" Width="180"/>
@@ -72,7 +65,7 @@
                 <TextBlock Text="Household name · motto. Shown on the web app. Leave motto blank to clear it." Foreground="#64748B" FontSize="11" Margin="0,0,0,12"/>
             </StackPanel>
 
-            <StackPanel Grid.Row="3">
+            <StackPanel>
                 <TextBlock Text="Add user" FontWeight="SemiBold"/>
                 <Grid Margin="0,6,0,12">
                     <Grid.ColumnDefinitions>
@@ -91,7 +84,7 @@
                 <TextBlock Text="Email · nickname · household" Foreground="#64748B" FontSize="11" Margin="0,0,0,8"/>
             </StackPanel>
 
-            <StackPanel Grid.Row="4" Margin="0,0,0,12">
+            <StackPanel Margin="0,0,0,12">
                 <TextBlock Text="Remove from household" FontWeight="SemiBold"/>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                     <TextBox Text="{Binding RemoveHouseholdName, UpdateSourceTrigger=PropertyChanged}" Width="200"/>
@@ -101,7 +94,7 @@
                            Foreground="#64748B" FontSize="11" Margin="0,4,0,0"/>
             </StackPanel>
 
-            <DataGrid Grid.Row="5"
+            <DataGrid Height="240"
                       ItemsSource="{Binding Users}"
                       SelectedItem="{Binding SelectedUser}"
                       AutoGenerateColumns="False"
@@ -115,6 +108,7 @@
                     <DataGridTextColumn Header="Households" Binding="{Binding Households}" Width="180"/>
                 </DataGrid.Columns>
             </DataGrid>
-        </Grid>
+        </StackPanel>
+        </ScrollViewer>
     </DockPanel>
 </Window>
