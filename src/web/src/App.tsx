@@ -54,20 +54,29 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(apiUrl("/api/storage-mode"))
-      .then((response) => response.json())
-      .then((body: { mode?: string }) => {
+    async function readMode() {
+      try {
+        const response = await fetch(apiUrl("/api/storage-mode"));
+        const body = (await response.json()) as { mode?: string };
         if (!cancelled) {
           setFileMode(body.mode === "File");
         }
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) {
           setFileMode(false);
         }
-      });
+      }
+    }
+    void readMode();
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        void readMode();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
 
@@ -75,6 +84,8 @@ export default function App() {
     if (!fileMode || !session) {
       return;
     }
+    setStatus("File mode. The list is live — add, check, and swipe update everyone.");
+    void refresh();
     let stop = false;
     let connection: { stop: () => Promise<void> } | null = null;
     connectList(session.household, () => {
@@ -86,7 +97,7 @@ export default function App() {
         connection = hub;
       })
       .catch(() => {
-        /* Azure mode or cold API — Refresh still works. */
+        /* Cold API — Refresh still works. */
       });
     return () => {
       stop = true;
@@ -382,14 +393,16 @@ export default function App() {
   return (
     <main className="page">
       <header className="top">
-        <p className="eyebrow">DropCaptureList</p>
+        <p className="eyebrow">{fileMode ? "DropCaptureList · File live" : "DropCaptureList"}</p>
         <div className="top-actions">
           <button type="button" className="text-button" onClick={() => void refresh()} disabled={busy}>
             Refresh
           </button>
+          {fileMode ? null : (
           <button type="button" className="text-button" onClick={() => void save()} disabled={busy}>
             Save
           </button>
+          )}
           {items.some((item) => item.isCompleted) ? (
             <button type="button" className="text-button" onClick={clearCompleted} disabled={busy}>
               Clear completed
