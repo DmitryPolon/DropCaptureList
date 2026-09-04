@@ -11,6 +11,8 @@ public sealed class AdminViewModel : ViewModelBase
 {
     private readonly IIdentityService _identity;
     private readonly ICaptureService _captures;
+    private readonly StorageModeClient _mode;
+    private readonly UserSession _session;
     private string _newEmail = string.Empty;
     private string _newNickname = string.Empty;
     private string _newHousehold = string.Empty;
@@ -27,22 +29,53 @@ public sealed class AdminViewModel : ViewModelBase
     private string _lastClearedLabel = "Last cleared: not loaded.";
     private bool _sqlBusy;
 
-    public AdminViewModel(IIdentityService identity, ICaptureService captures)
+    public AdminViewModel(IIdentityService identity, ICaptureService captures, StorageModeClient mode, UserSession session)
     {
         _identity = identity;
         _captures = captures;
+        _mode = mode;
+        _session = session;
         Users = new ObservableCollection<AdminUserRow>();
         AddUserCommand = new RelayCommand(AddUser);
         CreateHouseholdCommand = new RelayCommand(CreateHousehold);
         SaveMottoCommand = new RelayCommand(SaveMotto);
         RemoveFromHouseholdCommand = new RelayCommand(RemoveFromHousehold);
-        LoadSqlDetailsCommand = new RelayCommand(LoadSqlDetails, () => !_sqlBusy);
-        LoadVCore();
+        LoadSqlDetailsCommand = new RelayCommand(LoadSqlDetails, () => !_sqlBusy && AzureSelected);
+        UseAzureCommand = new RelayCommand(() => SetMode("Azure"));
+        UseFileCommand = new RelayCommand(() => SetMode("File"));
+        try
+        {
+            _mode.Refresh();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+        }
+
+        if (AzureSelected)
+        {
+            LoadVCore();
+        }
+        else
+        {
+            VCoreLabel = "Free compute: not used in File mode.";
+            DataUsedLabel = "Data used: JSON files on the API (no SQL).";
+            LastClearedLabel = "Last cleared: completed items are deleted in File mode.";
+            LoadFileUsers();
+        }
     }
 
     public ObservableCollection<AdminUserRow> Users { get; }
 
     public bool SqlWasUsed { get; private set; }
+
+    public bool AzureSelected => !_mode.IsFile;
+
+    public bool FileSelected => _mode.IsFile;
+
+    public RelayCommand UseAzureCommand { get; }
+
+    public RelayCommand UseFileCommand { get; }
 
     public string WebAppUrl => AdminSnapshot.WebAppUrl;
 
@@ -135,6 +168,55 @@ public sealed class AdminViewModel : ViewModelBase
     public RelayCommand SaveMottoCommand { get; }
     public RelayCommand RemoveFromHouseholdCommand { get; }
     public RelayCommand LoadSqlDetailsCommand { get; }
+
+    private void SetMode(string mode)
+    {
+        try
+        {
+            StatusMessage = mode == "File"
+                ? "Switching to File (copies live SQL rows once if the folder is empty)…"
+                : "Switching to Azure SQL…";
+            _mode.Set(_session.Email, mode);
+            RaisePropertyChanged(nameof(AzureSelected));
+            RaisePropertyChanged(nameof(FileSelected));
+            LoadSqlDetailsCommand.RaiseCanExecuteChanged();
+            if (_mode.IsFile)
+            {
+                SqlWasUsed = true;
+                VCoreLabel = "Free compute: not used in File mode.";
+                DataUsedLabel = "Data used: JSON files on the API (no SQL).";
+                LastClearedLabel = "Last cleared: completed items are deleted in File mode.";
+                LoadFileUsers();
+                StatusMessage = "File mode on. SignalR is live. SQL buttons are off.";
+            }
+            else
+            {
+                LoadVCore();
+                StatusMessage = "Azure SQL mode on.";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+        }
+    }
+
+    private async void LoadFileUsers()
+    {
+        try
+        {
+            var users = await Task.Run(() => _identity.ListUsers().ToList());
+            Users.Clear();
+            foreach (var user in users)
+            {
+                Users.Add(user);
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+        }
+    }
 
     private async void LoadVCore()
     {

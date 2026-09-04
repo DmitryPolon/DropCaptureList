@@ -20,15 +20,27 @@
 
             <Border Grid.Row="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" Padding="12" Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="Usage (free SQL)" FontWeight="SemiBold"/>
-                    <TextBlock Margin="0,6,0,0" Text="{Binding VCoreLabel}" TextWrapping="Wrap"/>
+                    <TextBlock Text="Storage" FontWeight="SemiBold"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <RadioButton Content="Azure SQL"
+                                     Margin="0,0,16,0"
+                                     IsChecked="{Binding AzureSelected, Mode=OneWay}"
+                                     Command="{Binding UseAzureCommand}"/>
+                        <RadioButton Content="File (JSON + SignalR)"
+                                     IsChecked="{Binding FileSelected, Mode=OneWay}"
+                                     Command="{Binding UseFileCommand}"/>
+                    </StackPanel>
+                    <TextBlock Margin="0,8,0,0" Text="{Binding VCoreLabel}" TextWrapping="Wrap"
+                               IsEnabled="{Binding AzureSelected}"/>
                     <Button Content="Show storage and last cleared"
                             Margin="0,10,0,0"
                             HorizontalAlignment="Left"
                             Padding="10,4"
-                            Command="{Binding LoadSqlDetailsCommand}"/>
-                    <TextBlock Margin="0,8,0,0" Text="{Binding DataUsedLabel}"/>
-                    <TextBlock Margin="0,4,0,0" Text="{Binding LastClearedLabel}" TextWrapping="Wrap"/>
+                            Command="{Binding LoadSqlDetailsCommand}"
+                            IsEnabled="{Binding AzureSelected}"/>
+                    <TextBlock Margin="0,8,0,0" Text="{Binding DataUsedLabel}" IsEnabled="{Binding AzureSelected}"/>
+                    <TextBlock Margin="0,4,0,0" Text="{Binding LastClearedLabel}" TextWrapping="Wrap"
+                               IsEnabled="{Binding AzureSelected}"/>
                     <TextBlock Margin="0,8,0,0">
                         <Run Text="Web app: "/>
                         <Hyperlink NavigateUri="https://droplist.azpcloud.com" RequestNavigate="WebAppLink_OnRequestNavigate">
@@ -36,7 +48,7 @@
                         </Hyperlink>
                     </TextBlock>
                     <TextBlock Margin="0,6,0,0" Foreground="#64748B" FontSize="11" TextWrapping="Wrap"
-                               Text="vCore % comes from Azure Monitor and does not wake SQL. Storage, last cleared, and the user list use SQL — only the button above, or Add / Create / motto / Remove."/>
+                               Text="Azure: vCore is Monitor-only; storage/users wake SQL. File: JSON on the API, completed rows are deleted, SignalR updates the phone. First switch to File copies live SQL rows once."/>
                 </StackPanel>
             </Border>
 

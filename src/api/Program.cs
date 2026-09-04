@@ -3,6 +3,7 @@ using DropCaptureList.Api;
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true);
 builder.Services.AddApplicationInsightsTelemetry();
+builder.Services.AddSignalR();
 
 var sql = new SqlSettings();
 builder.Configuration.GetSection("Sql").Bind(sql);
@@ -29,28 +30,62 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod());
 });
 
+var dataDirectory = DataPaths.Resolve(builder.Configuration);
 builder.Services.AddSingleton(sql);
 builder.Services.AddSingleton<AzureSql>();
 builder.Services.AddSingleton<Households>();
 builder.Services.AddSingleton<AppDirectory>();
+builder.Services.AddSingleton(new StorageMode(dataDirectory));
+builder.Services.AddSingleton(new FileDirectory(dataDirectory));
+builder.Services.AddSingleton<StoreFront>();
+builder.Services.AddSingleton<ListNotifier>();
 
 var app = builder.Build();
 app.UseCors();
 
-app.MapGet("/api/health", () => Results.Ok(new { ok = true }));
+app.MapGet("/api/health", (StorageMode mode) => Results.Ok(new { ok = true, mode = mode.Kind.ToString() }));
 
-app.MapPost("/api/session", (SignInRequest body, AppDirectory directory, ILogger<Program> log) =>
+app.MapGet("/api/storage-mode", (StorageMode mode) => Results.Ok(new
+{
+    mode = mode.Kind.ToString(),
+    signalR = mode.IsFile
+}));
+
+app.MapPost("/api/storage-mode", (SetModeRequest body, StoreFront store, ILogger<Program> log) =>
 {
     try
     {
-        var session = directory.SignIn(body.Email, body.Household);
+        var kind = string.Equals(body.Mode, "File", StringComparison.OrdinalIgnoreCase)
+            ? StorageKind.File
+            : StorageKind.Azure;
+        store.SetMode(kind, body.Email);
+        return Results.Ok(new { mode = store.Kind.ToString(), signalR = store.IsFile });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Could not switch storage mode.");
+        return Results.Problem("Could not switch storage mode.", statusCode: 503);
+    }
+});
+
+app.MapPost("/api/session", (SignInRequest body, StoreFront store, ILogger<Program> log) =>
+{
+    try
+    {
+        var session = store.SignIn(body.Email, body.Household);
         return Results.Ok(new
         {
             email = session.Email,
             nickname = session.Nickname,
             household = session.Household,
             motto = session.Motto,
-            logoLetter = session.LogoLetter
+            logoLetter = session.LogoLetter,
+            userId = session.UserId,
+            isAppAdmin = store.IsAppAdmin(session.Email)
         });
     }
     catch (InvalidOperationException ex)
@@ -64,11 +99,11 @@ app.MapPost("/api/session", (SignInRequest body, AppDirectory directory, ILogger
     }
 });
 
-app.MapGet("/api/households", (Households households, ILogger<Program> log) =>
+app.MapGet("/api/households", (StoreFront store, ILogger<Program> log) =>
 {
     try
     {
-        return Results.Ok(households.List());
+        return Results.Ok(store.ListHouseholds());
     }
     catch (InvalidOperationException ex)
     {
@@ -81,11 +116,11 @@ app.MapGet("/api/households", (Households households, ILogger<Program> log) =>
     }
 });
 
-app.MapGet("/api/households/{household}/items", (string household, AppDirectory directory, ILogger<Program> log) =>
+app.MapGet("/api/households/{household}/items", (string household, StoreFront store, ILogger<Program> log) =>
 {
     try
     {
-        return Results.Ok(directory.ListItems(household));
+        return Results.Ok(store.ListItems(household));
     }
     catch (Exception ex)
     {
@@ -94,10 +129,11 @@ app.MapGet("/api/households/{household}/items", (string household, AppDirectory 
     }
 });
 
-app.MapPost("/api/households/{household}/items", (
+app.MapPost("/api/households/{household}/items", async (
     string household,
     AddItemRequest body,
-    AppDirectory directory,
+    StoreFront store,
+    ListNotifier notifier,
     ILogger<Program> log) =>
 {
     try
@@ -107,8 +143,9 @@ app.MapPost("/api/households/{household}/items", (
             return Results.Problem("Household does not match.", statusCode: 400);
         }
 
-        directory.AddTextItem(body.Email, household, body.Text);
-        return Results.Ok(directory.ListItems(household));
+        store.AddTextItem(body.Email, household, body.Text);
+        await notifier.ListChanged(household);
+        return Results.Ok(store.ListItems(household));
     }
     catch (InvalidOperationException ex)
     {
@@ -121,11 +158,36 @@ app.MapPost("/api/households/{household}/items", (
     }
 });
 
-app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", (
+app.MapPost("/api/households/{household}/items/bulk", async (
+    string household,
+    BulkItemsRequest body,
+    StoreFront store,
+    ListNotifier notifier,
+    ILogger<Program> log) =>
+{
+    try
+    {
+        store.UpsertItems(body.Email, household, body.Items);
+        await notifier.ListChanged(household);
+        return Results.Ok(store.ListItems(household));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Could not save items for {Household}.", household);
+        return Results.Problem("Could not save the list.", statusCode: 503);
+    }
+});
+
+app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", async (
     string household,
     Guid itemId,
     SignInRequest body,
-    AppDirectory directory,
+    StoreFront store,
+    ListNotifier notifier,
     ILogger<Program> log) =>
 {
     try
@@ -135,8 +197,9 @@ app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", (
             return Results.Problem("Household does not match.", statusCode: 400);
         }
 
-        directory.ToggleComplete(body.Email, household, itemId);
-        return Results.Ok(directory.ListItems(household));
+        store.ToggleComplete(body.Email, household, itemId);
+        await notifier.ListChanged(household);
+        return Results.Ok(store.ListItems(household));
     }
     catch (InvalidOperationException ex)
     {
@@ -149,11 +212,12 @@ app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", (
     }
 });
 
-app.MapPost("/api/households/{household}/items/{itemId:guid}/remove", (
+app.MapPost("/api/households/{household}/items/{itemId:guid}/remove", async (
     string household,
     Guid itemId,
     SignInRequest body,
-    AppDirectory directory,
+    StoreFront store,
+    ListNotifier notifier,
     ILogger<Program> log) =>
 {
     try
@@ -163,8 +227,9 @@ app.MapPost("/api/households/{household}/items/{itemId:guid}/remove", (
             return Results.Problem("Household does not match.", statusCode: 400);
         }
 
-        directory.SoftDelete(body.Email, household, itemId);
-        return Results.Ok(directory.ListItems(household));
+        store.RemoveItem(body.Email, household, itemId);
+        await notifier.ListChanged(household);
+        return Results.Ok(store.ListItems(household));
     }
     catch (InvalidOperationException ex)
     {
@@ -177,10 +242,11 @@ app.MapPost("/api/households/{household}/items/{itemId:guid}/remove", (
     }
 });
 
-app.MapPost("/api/households/{household}/completed/clear", (
+app.MapPost("/api/households/{household}/completed/clear", async (
     string household,
     SignInRequest body,
-    AppDirectory directory,
+    StoreFront store,
+    ListNotifier notifier,
     ILogger<Program> log) =>
 {
     try
@@ -190,8 +256,9 @@ app.MapPost("/api/households/{household}/completed/clear", (
             return Results.Problem("Household does not match.", statusCode: 400);
         }
 
-        directory.ClearCompleted(body.Email, household);
-        return Results.Ok(directory.ListItems(household));
+        store.ClearCompleted(body.Email, household);
+        await notifier.ListChanged(household);
+        return Results.Ok(store.ListItems(household));
     }
     catch (InvalidOperationException ex)
     {
@@ -204,8 +271,122 @@ app.MapPost("/api/households/{household}/completed/clear", (
     }
 });
 
+app.MapPost("/api/households/{household}/clear", async (
+    string household,
+    SignInRequest body,
+    StoreFront store,
+    ListNotifier notifier,
+    ILogger<Program> log) =>
+{
+    try
+    {
+        store.ClearAll(body.Email, household);
+        await notifier.ListChanged(household);
+        return Results.Ok(store.ListItems(household));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Could not clear {Household}.", household);
+        return Results.Problem("Could not clear the list.", statusCode: 503);
+    }
+});
+
+app.MapGet("/api/admin/users", (StoreFront store) => Results.Ok(store.ListUsers()));
+
+app.MapGet("/api/admin/households/{userId:guid}", (Guid userId, StoreFront store) =>
+    Results.Ok(store.HouseholdsForUser(userId)));
+
+app.MapPost("/api/admin/users", (AdminUserRequest body, StoreFront store, ILogger<Program> log) =>
+{
+    try
+    {
+        store.AddUser(body.Email, body.LoginName, body.Household, body.Nickname, body.IsAppAdmin);
+        return Results.Ok(store.ListUsers());
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Could not add user.");
+        return Results.Problem("Could not add the user.", statusCode: 503);
+    }
+});
+
+app.MapPost("/api/admin/households", (AdminHouseholdRequest body, StoreFront store, ILogger<Program> log) =>
+{
+    try
+    {
+        store.CreateHousehold(body.Name, body.Motto);
+        return Results.Ok();
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Could not create household.");
+        return Results.Problem("Could not create the household.", statusCode: 503);
+    }
+});
+
+app.MapPost("/api/admin/motto", (AdminMottoRequest body, StoreFront store, ILogger<Program> log) =>
+{
+    try
+    {
+        store.SetMotto(body.Household, body.Motto);
+        return Results.Ok();
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Could not save motto.");
+        return Results.Problem("Could not save the motto.", statusCode: 503);
+    }
+});
+
+app.MapPost("/api/admin/remove", (AdminRemoveRequest body, StoreFront store, ILogger<Program> log) =>
+{
+    try
+    {
+        store.RemoveFromHousehold(body.UserId, body.Household);
+        return Results.Ok(store.ListUsers());
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Could not remove user.");
+        return Results.Problem("Could not remove the user.", statusCode: 503);
+    }
+});
+
+app.MapHub<ListHub>("/hubs/list");
 app.Run();
 
 public sealed record SignInRequest(string Email, string Household);
 
 public sealed record AddItemRequest(string Email, string Household, string Text);
+
+public sealed record SetModeRequest(string Email, string Mode);
+
+public sealed record BulkItemsRequest(string Email, string Household, List<FileItem> Items);
+
+public sealed record AdminUserRequest(string Email, string LoginName, string Household, string Nickname, bool IsAppAdmin);
+
+public sealed record AdminHouseholdRequest(string Name, string? Motto);
+
+public sealed record AdminMottoRequest(string Household, string Motto);
+
+public sealed record AdminRemoveRequest(Guid UserId, string Household);

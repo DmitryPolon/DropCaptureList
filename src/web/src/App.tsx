@@ -1,5 +1,6 @@
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiUrl } from "./api";
+import { connectList } from "./live";
 import { sheetsFromItems } from "./replica";
 import { SwipeAway } from "./SwipeAway";
 import type { ListItem, Session } from "./types";
@@ -45,10 +46,53 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Tap Refresh to load the list. Add, check, and swipe stay on this phone until Save.");
   const [busy, setBusy] = useState(false);
+  const [fileMode, setFileMode] = useState(false);
   const baselineRef = useRef<ListItem[]>([]);
   const pendingCompleteRef = useRef(new Set<string>());
   const pendingRemoveRef = useRef(new Set<string>());
   const layout = useMemo(() => sheetsFromItems(items), [items]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(apiUrl("/api/storage-mode"))
+      .then((response) => response.json())
+      .then((body: { mode?: string }) => {
+        if (!cancelled) {
+          setFileMode(body.mode === "File");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFileMode(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!fileMode || !session) {
+      return;
+    }
+    let stop = false;
+    let connection: { stop: () => Promise<void> } | null = null;
+    connectList(session.household, () => {
+      if (!stop) {
+        void refresh();
+      }
+    })
+      .then((hub) => {
+        connection = hub;
+      })
+      .catch(() => {
+        /* Azure mode or cold API — Refresh still works. */
+      });
+    return () => {
+      stop = true;
+      void connection?.stop();
+    };
+  }, [fileMode, session?.household]);
 
   function resetPending() {
     pendingCompleteRef.current = new Set();
@@ -230,6 +274,14 @@ export default function App() {
       }
     ]);
     setDraft("");
+    if (fileMode) {
+      void postAction(`/api/households/${encodeURIComponent(session.household)}/items`, { text }).then(
+        () => setStatus("Added. Other phones update live."),
+        (err: unknown) => setError(err instanceof Error ? err.message : "Could not add the task.")
+      );
+      return;
+    }
+
     setStatus("Added locally. Save to write the database.");
   }
 
@@ -245,6 +297,17 @@ export default function App() {
     } else {
       pendingCompleteRef.current.delete(item.id);
     }
+    if (fileMode && completing && session) {
+      void postAction(`/api/households/${encodeURIComponent(session.household)}/items/${item.id}/toggle`).then(
+        () => {
+          setItems((current) => current.filter((row) => row.id !== item.id));
+          setStatus("Done — removed for everyone.");
+        },
+        (err: unknown) => setError(err instanceof Error ? err.message : "Could not update the item.")
+      );
+      return;
+    }
+
     setStatus("Check stays on this phone until Save.");
   }
 
@@ -252,6 +315,14 @@ export default function App() {
     pendingRemoveRef.current.add(item.id);
     pendingCompleteRef.current.delete(item.id);
     setItems((current) => current.filter((row) => row.id !== item.id));
+    if (fileMode && session) {
+      void postAction(`/api/households/${encodeURIComponent(session.household)}/items/${item.id}/remove`).then(
+        () => setStatus("Removed for everyone."),
+        (err: unknown) => setError(err instanceof Error ? err.message : "Could not remove the item.")
+      );
+      return;
+    }
+
     setStatus("Removed locally. Save to write the database.");
   }
 

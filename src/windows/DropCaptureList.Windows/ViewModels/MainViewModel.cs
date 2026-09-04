@@ -11,6 +11,8 @@ public sealed class MainViewModel : ViewModelBase
     private readonly ExcelSelectionCapture _excel;
     private readonly ProtectedSessionStore _sessions;
     private readonly IIdentityService _identity;
+    private readonly StorageModeClient _storageMode;
+    private readonly ApiBackend? _api;
     private readonly HashSet<Guid> _persistedIds = [];
     private UserSession _session;
     private LocalTenant? _selectedHousehold;
@@ -32,13 +34,17 @@ public sealed class MainViewModel : ViewModelBase
         ICaptureService captures,
         ExcelSelectionCapture excel,
         ProtectedSessionStore sessions,
-        IIdentityService identity)
+        IIdentityService identity,
+        StorageModeClient storageMode,
+        ApiBackend? api)
     {
         _session = session;
         _captures = captures;
         _excel = excel;
         _sessions = sessions;
         _identity = identity;
+        _storageMode = storageMode;
+        _api = api;
 
         CaptureCommand = new RelayCommand(CaptureFromExcel);
         SaveCommand = new RelayCommand(SaveToDatabase);
@@ -56,6 +62,10 @@ public sealed class MainViewModel : ViewModelBase
     public IIdentityService Identity => _identity;
 
     public ICaptureService Captures => _captures;
+
+    public StorageModeClient StorageMode => _storageMode;
+
+    public UserSession Session => _session;
 
     public ObservableCollection<LocalTenant> Households { get; }
     public ObservableCollection<CapturedItem> Items { get; }
@@ -103,6 +113,12 @@ public sealed class MainViewModel : ViewModelBase
                 IsAppAdmin = _session.IsAppAdmin
             };
             _sessions.Save(_session);
+            if (_api is not null)
+            {
+                _api.LastEmail = _session.Email;
+                _api.LastHousehold = _session.TenantName;
+            }
+
             RaisePropertyChanged(nameof(HouseholdLabel));
             Items.Clear();
             _persistedIds.Clear();
