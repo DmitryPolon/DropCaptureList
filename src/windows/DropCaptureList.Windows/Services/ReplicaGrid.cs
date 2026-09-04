@@ -6,17 +6,39 @@ public static class ReplicaGrid
 {
     public static IReadOnlyList<ReplicaRow> FromItems(IEnumerable<CapturedItem> items)
     {
-        var list = items.Where(i => i.ExcelRow > 0 || i.ExcelColumn > 0).ToList();
-        if (list.Count == 0)
+        var all = items.ToList();
+        var excel = all.Where(i => i.ExcelRow > 0 && i.ExcelColumn > 0).ToList();
+        var leftover = all.Where(i => i.ExcelRow <= 0 || i.ExcelColumn <= 0)
+            .OrderByDescending(i => i.CreatedAt)
+            .ToList();
+
+        var rows = new List<ReplicaRow>();
+        if (excel.Count > 0)
         {
-            list = items.ToList();
+            rows.AddRange(BuildSheet(excel));
         }
 
-        if (list.Count == 0)
+        foreach (var item in leftover)
         {
-            return [];
+            rows.Add(new ReplicaRow
+            {
+                Cells =
+                [
+                    new ReplicaCell
+                    {
+                        Item = item,
+                        Row = item.ExcelRow,
+                        Column = item.ExcelColumn
+                    }
+                ]
+            });
         }
 
+        return rows;
+    }
+
+    private static IEnumerable<ReplicaRow> BuildSheet(List<CapturedItem> list)
+    {
         var minRow = list.Min(c => c.ExcelRow);
         var maxRow = list.Max(c => c.ExcelRow);
         var minCol = list.Min(c => c.ExcelColumn);
@@ -27,7 +49,6 @@ public static class ReplicaGrid
             lookup[(item.ExcelRow, item.ExcelColumn)] = item;
         }
 
-        var rows = new List<ReplicaRow>();
         for (var row = minRow; row <= maxRow; row++)
         {
             var replicaRow = new ReplicaRow();
@@ -42,9 +63,7 @@ public static class ReplicaGrid
                 });
             }
 
-            rows.Add(replicaRow);
+            yield return replicaRow;
         }
-
-        return rows;
     }
 }
