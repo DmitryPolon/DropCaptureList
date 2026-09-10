@@ -13,7 +13,7 @@ public sealed class StorageMode
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true, WriteIndented = true };
     private readonly string _path;
     private readonly object _gate = new();
-    private StorageKind _kind = StorageKind.Azure;
+    private StorageKind _kind = StorageKind.File;
 
     public StorageMode(string dataDirectory)
     {

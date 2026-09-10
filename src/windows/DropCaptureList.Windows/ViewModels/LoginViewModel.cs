@@ -82,7 +82,7 @@ public sealed class LoginViewModel : ViewModelBase
     {
         _isBusy = true;
         ContinueCommand.RaiseCanExecuteChanged();
-        StatusMessage = "Connecting to Azure SQL (paused databases take up to a minute)…";
+        StatusMessage = "Signing in…";
         try
         {
             var email = Email;

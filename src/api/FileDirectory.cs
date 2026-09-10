@@ -90,7 +90,7 @@ public sealed class FileDirectory
             var member = house.Members.FirstOrDefault(m => m.UserId == user.Id)
                 ?? throw new InvalidOperationException(
                     "That email is registered, but not in this household. Use the household name from the list (not the nickname).");
-            return new WebSession(user.Id, user.Email, member.Nickname, house.Name, house.Motto, AppDirectory.Letter(house.Name));
+            return new WebSession(user.Id, user.Email, member.Nickname, house.Name, house.Motto, HouseholdMark.Letter(house.Name));
         }
     }
 
@@ -108,7 +108,7 @@ public sealed class FileDirectory
         {
             return LoadHouseholds()
                 .OrderBy(h => h.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(h => new HouseholdBrand(h.Name, h.Motto, AppDirectory.Letter(h.Name)))
+                .Select(h => new HouseholdBrand(h.Name, h.Motto, HouseholdMark.Letter(h.Name)))
                 .ToList();
         }
     }
@@ -271,17 +271,64 @@ public sealed class FileDirectory
         lock (_gate)
         {
             var houses = LoadHouseholds();
-            if (houses.Count >= 2 && houses.All(h => !string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new InvalidOperationException("File mode allows at most two households.");
-            }
-
             if (houses.Any(h => string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new InvalidOperationException("That household already exists.");
             }
 
             SaveHousehold(new FileHousehold { Id = Guid.NewGuid(), Name = name, Motto = motto.Length <= 120 ? motto : motto[..120] });
+        }
+    }
+
+    public void CreateHouseholdWithMember(string name, string? motto, string memberEmail, string memberNickname)
+    {
+        CreateHousehold(name, motto);
+        var firstAdmin = !HasUsers();
+        AddUser(memberEmail, memberNickname, name, memberNickname, isAppAdmin: firstAdmin);
+    }
+
+    public void DeleteHousehold(string name)
+    {
+        name = name.Trim();
+        lock (_gate)
+        {
+            var house = RequireHousehold(name);
+            var dir = Path.Combine(_root, FolderName(house.Name));
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+    }
+
+    public bool IsMember(string email, string household)
+    {
+        lock (_gate)
+        {
+            var user = FindUser(email);
+            var house = FindHousehold(household);
+            return user is not null && house is not null && house.Members.Any(m => m.UserId == user.Id);
+        }
+    }
+
+    public IReadOnlyList<MemberDto> ListMembers(string household)
+    {
+        lock (_gate)
+        {
+            var house = RequireHousehold(household);
+            var users = LoadUsers().ToDictionary(u => u.Id);
+            return house.Members
+                .Select(m =>
+                {
+                    var user = users.GetValueOrDefault(m.UserId);
+                    return new MemberDto(
+                        m.UserId,
+                        user?.Email ?? "",
+                        m.Nickname,
+                        user?.IsAppAdmin == true);
+                })
+                .OrderBy(m => m.Nickname, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
     }
 
@@ -394,7 +441,7 @@ public sealed class FileDirectory
                 Directory.Delete(old, recursive: true);
             }
 
-            foreach (var house in households.Take(2))
+            foreach (var house in households)
             {
                 SaveHousehold(house);
             }
@@ -485,3 +532,5 @@ public sealed class FileDirectory
 public sealed record AdminUserDto(Guid UserId, string LoginName, string Email, bool IsAppAdmin, string Households);
 
 public sealed record HouseholdDto(Guid Id, string Name, string Motto);
+
+public sealed record MemberDto(Guid UserId, string Email, string Nickname, bool IsAppAdmin);

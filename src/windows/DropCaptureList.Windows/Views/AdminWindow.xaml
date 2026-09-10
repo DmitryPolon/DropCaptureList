@@ -1,113 +1,100 @@
 <Window x:Class="DropCaptureList.Windows.Views.AdminWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="App admin"
+        Title="Household"
         Height="680"
         Width="720"
         WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+    </Window.Resources>
     <DockPanel Margin="16">
         <TextBlock DockPanel.Dock="Bottom" Text="{Binding StatusMessage}" Foreground="#B91C1C" Margin="0,12,0,0" TextWrapping="Wrap"/>
 
         <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
-
-            <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" Padding="12" Margin="0,0,0,16">
-                <StackPanel>
-                    <TextBlock Text="Storage" FontWeight="SemiBold"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <RadioButton Content="Azure SQL"
-                                     Margin="0,0,16,0"
-                                     IsChecked="{Binding AzureSelected, Mode=OneWay}"
-                                     Command="{Binding UseAzureCommand}"/>
-                        <RadioButton Content="File (JSON + SignalR)"
-                                     IsChecked="{Binding FileSelected, Mode=OneWay}"
-                                     Command="{Binding UseFileCommand}"/>
-                    </StackPanel>
-                    <TextBlock Margin="0,8,0,0" Text="{Binding VCoreLabel}" TextWrapping="Wrap"
-                               IsEnabled="{Binding AzureSelected}"/>
-                    <Button Content="Show storage and last cleared"
-                            Margin="0,10,0,0"
-                            HorizontalAlignment="Left"
-                            Padding="10,4"
-                            Command="{Binding LoadSqlDetailsCommand}"
-                            IsEnabled="{Binding AzureSelected}"/>
-                    <TextBlock Margin="0,8,0,0" Text="{Binding DataUsedLabel}" IsEnabled="{Binding AzureSelected}"/>
-                    <TextBlock Margin="0,4,0,0" Text="{Binding LastClearedLabel}" TextWrapping="Wrap"
-                               IsEnabled="{Binding AzureSelected}"/>
-                    <TextBlock Margin="0,8,0,0">
-                        <Run Text="Web app: "/>
-                        <Hyperlink NavigateUri="https://droplist.azpcloud.com" RequestNavigate="WebAppLink_OnRequestNavigate">
-                            <Run Text="{Binding WebAppUrl, Mode=OneWay}"/>
-                        </Hyperlink>
-                    </TextBlock>
-                    <TextBlock Margin="0,6,0,0" Foreground="#64748B" FontSize="11" TextWrapping="Wrap"
-                               Text="Azure: vCore is Monitor-only; storage/users wake SQL. File: JSON on the API, completed rows are deleted, SignalR updates the phone. First switch to File copies live SQL rows once."/>
-                </StackPanel>
-            </Border>
-
-            <StackPanel>
-                <TextBlock Text="Create household" FontWeight="SemiBold"/>
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,4">
-                    <TextBox Text="{Binding NewHouseholdName, UpdateSourceTrigger=PropertyChanged}" Width="180"/>
-                    <TextBox Text="{Binding NewHouseholdMotto, UpdateSourceTrigger=PropertyChanged}" Width="260" Margin="8,0,0,0"/>
-                    <Button Content="Create" Margin="8,0,0,0" Width="90" Command="{Binding CreateHouseholdCommand}"/>
-                </StackPanel>
-                <TextBlock Text="Name · motto (optional). The motto is shown on the web app, not in Excel capture." Foreground="#64748B" FontSize="11" Margin="0,0,0,12"/>
-            </StackPanel>
+            <TextBlock FontSize="16" FontWeight="SemiBold" Text="{Binding HouseholdName}"/>
+            <TextBlock Margin="0,4,0,12" Foreground="#64748B" TextWrapping="Wrap"
+                       Text="Members of this household can add people by email and remove them. The shared list lives as JSON on the API."/>
+            <TextBlock Margin="0,0,0,16">
+                <Run Text="Web app: "/>
+                <Hyperlink NavigateUri="https://droplist.azpcloud.com" RequestNavigate="WebAppLink_OnRequestNavigate">
+                    <Run Text="{Binding WebAppUrl, Mode=OneWay}"/>
+                </Hyperlink>
+            </TextBlock>
 
             <StackPanel>
                 <TextBlock Text="Household motto" FontWeight="SemiBold"/>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,4">
-                    <TextBox Text="{Binding MottoHouseholdName, UpdateSourceTrigger=PropertyChanged}" Width="180"/>
-                    <TextBox Text="{Binding MottoText, UpdateSourceTrigger=PropertyChanged}" Width="260" Margin="8,0,0,0"/>
+                    <TextBox Text="{Binding MottoText, UpdateSourceTrigger=PropertyChanged}" Width="360"/>
                     <Button Content="Save motto" Margin="8,0,0,0" Padding="10,0" Command="{Binding SaveMottoCommand}"/>
                 </StackPanel>
-                <TextBlock Text="Household name · motto. Shown on the web app. Leave motto blank to clear it." Foreground="#64748B" FontSize="11" Margin="0,0,0,12"/>
+                <TextBlock Text="Shown on the phone. Leave blank to clear it." Foreground="#64748B" FontSize="11" Margin="0,0,0,16"/>
             </StackPanel>
 
             <StackPanel>
-                <TextBlock Text="Add user" FontWeight="SemiBold"/>
-                <Grid Margin="0,6,0,12">
+                <TextBlock Text="Add a member" FontWeight="SemiBold"/>
+                <Grid Margin="0,6,0,4">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="120"/>
                         <ColumnDefinition Width="140"/>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBox Grid.Column="0" Text="{Binding NewEmail, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"/>
                     <TextBox Grid.Column="1" Text="{Binding NewNickname, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"/>
-                    <TextBox Grid.Column="2" Text="{Binding NewHousehold, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0"/>
-                    <CheckBox Grid.Column="3" Content="App admin" IsChecked="{Binding NewIsAppAdmin}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <Button Grid.Column="4" Content="Add" Width="80" Command="{Binding AddUserCommand}"/>
+                    <Button Grid.Column="2" Content="Add" Width="80" Command="{Binding AddMemberCommand}"/>
                 </Grid>
-                <TextBlock Text="Email · nickname · household" Foreground="#64748B" FontSize="11" Margin="0,0,0,8"/>
+                <TextBlock Text="Email · nickname. They sign in with this email and this household name." Foreground="#64748B" FontSize="11" Margin="0,0,0,12"/>
             </StackPanel>
 
             <StackPanel Margin="0,0,0,12">
-                <TextBlock Text="Remove from household" FontWeight="SemiBold"/>
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                    <TextBox Text="{Binding RemoveHouseholdName, UpdateSourceTrigger=PropertyChanged}" Width="200"/>
-                    <Button Content="Remove selected user" Margin="8,0,0,0" Padding="10,0" Command="{Binding RemoveFromHouseholdCommand}"/>
-                </StackPanel>
-                <TextBlock Text="Select a user in the grid, type the household name, then Remove."
-                           Foreground="#64748B" FontSize="11" Margin="0,4,0,0"/>
+                <TextBlock Text="Members" FontWeight="SemiBold"/>
+                <Button Content="Remove selected" Margin="0,6,0,8" HorizontalAlignment="Left" Padding="10,4" Command="{Binding RemoveMemberCommand}"/>
+                <DataGrid Height="200"
+                          ItemsSource="{Binding Members}"
+                          SelectedItem="{Binding SelectedMember}"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Nickname" Binding="{Binding Nickname}" Width="140"/>
+                        <DataGridTextColumn Header="Email" Binding="{Binding Email}" Width="*"/>
+                        <DataGridCheckBoxColumn Header="App admin" Binding="{Binding IsAppAdmin}" Width="90"/>
+                    </DataGrid.Columns>
+                </DataGrid>
             </StackPanel>
 
-            <DataGrid Height="240"
-                      ItemsSource="{Binding Users}"
-                      SelectedItem="{Binding SelectedUser}"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="True"
-                      HeadersVisibility="Column"
-                      CanUserAddRows="False">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Login" Binding="{Binding LoginName}" Width="100"/>
-                    <DataGridTextColumn Header="Email" Binding="{Binding Email}" Width="*"/>
-                    <DataGridCheckBoxColumn Header="App admin" Binding="{Binding IsAppAdmin}" Width="90"/>
-                    <DataGridTextColumn Header="Households" Binding="{Binding Households}" Width="180"/>
-                </DataGrid.Columns>
-            </DataGrid>
+            <StackPanel Visibility="{Binding IsAppAdmin, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="App admin" FontWeight="SemiBold" Margin="0,8,0,0"/>
+                <TextBlock Foreground="#64748B" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,8"
+                           Text="Create a household and add its first member. You can delete any household."/>
+                <TextBlock Text="Create household" FontWeight="SemiBold"/>
+                <Grid Margin="0,6,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="140"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBox Grid.Row="0" Grid.Column="0" Text="{Binding NewHouseholdName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,6"/>
+                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding NewHouseholdMotto, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"/>
+                    <TextBox Grid.Row="1" Grid.Column="0" Text="{Binding FirstMemberEmail, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,6"/>
+                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding FirstMemberNickname, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"/>
+                    <Button Grid.Row="2" Grid.Column="0" Content="Create" Width="90" HorizontalAlignment="Left" Command="{Binding CreateHouseholdCommand}"/>
+                </Grid>
+                <TextBlock Text="Name · motto · first member email · nickname" Foreground="#64748B" FontSize="11" Margin="0,0,0,12"/>
+
+                <TextBlock Text="Delete household" FontWeight="SemiBold"/>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,4">
+                    <TextBox Text="{Binding DeleteHouseholdName, UpdateSourceTrigger=PropertyChanged}" Width="220"/>
+                    <Button Content="Delete" Margin="8,0,0,0" Width="90" Command="{Binding DeleteHouseholdCommand}"/>
+                </StackPanel>
+                <TextBlock Text="Type the household name. This removes the folder, list, and memberships." Foreground="#64748B" FontSize="11"/>
+            </StackPanel>
         </StackPanel>
         </ScrollViewer>
     </DockPanel>

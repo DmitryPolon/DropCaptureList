@@ -12,14 +12,21 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Azure.Identity" Version="1.14.2" />
-    <PackageReference Include="Azure.Identity.Broker" Version="1.2.1" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.8" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.8" />
     <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="9.0.8" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.8" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Services\AzureSqlConnectionFactory.cs" />
+    <Compile Remove="Services\CaptureService.cs" />
+    <Compile Remove="Services\ICaptureStore.cs" />
+    <Compile Remove="Services\JsonFileCaptureStore.cs" />
+    <Compile Remove="Services\LocalIdentityService.cs" />
+    <Compile Remove="Services\SqlCaptureService.cs" />
+    <Compile Remove="Services\SqlIdentityService.cs" />
+    <Compile Remove="Services\SqlSettings.cs" />
   </ItemGroup>
 
   <ItemGroup>

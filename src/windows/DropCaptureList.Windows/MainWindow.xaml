@@ -40,12 +40,11 @@
                               Visibility="{Binding ShowHouseholdSwitcher, Converter={StaticResource BoolToVis}}"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Content="Admin"
+                    <Button Content="Household"
                             Height="32"
                             Padding="12,0"
                             Margin="0,0,8,0"
-                            Command="{Binding OpenAdminCommand}"
-                            Visibility="{Binding IsAppAdmin, Converter={StaticResource BoolToVis}}"/>
+                            Command="{Binding OpenAdminCommand}"/>
                     <Button Content="Capture selected Excel cells"
                             Height="32"
                             Padding="12,0"

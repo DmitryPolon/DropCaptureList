@@ -4,6 +4,14 @@ export type Session = {
   household: string;
   motto: string;
   logoLetter: string;
+  isAppAdmin?: boolean;
+};
+
+export type Member = {
+  userId: string;
+  email: string;
+  nickname: string;
+  isAppAdmin: boolean;
 };
 
 export type ListItem = {

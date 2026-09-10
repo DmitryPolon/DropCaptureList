@@ -2,100 +2,48 @@ using DropCaptureList.Windows.Helpers;
 using DropCaptureList.Windows.Models;
 using DropCaptureList.Windows.Services;
 using System.Collections.ObjectModel;
-using System.Globalization;
-using System.Linq;
 
 namespace DropCaptureList.Windows.ViewModels;
 
 public sealed class AdminViewModel : ViewModelBase
 {
     private readonly IIdentityService _identity;
-    private readonly ICaptureService _captures;
-    private readonly StorageModeClient _mode;
     private readonly UserSession _session;
     private string _newEmail = string.Empty;
     private string _newNickname = string.Empty;
-    private string _newHousehold = string.Empty;
-    private bool _newIsAppAdmin;
     private string _newHouseholdName = string.Empty;
     private string _newHouseholdMotto = string.Empty;
-    private string _mottoHouseholdName = string.Empty;
+    private string _firstMemberEmail = string.Empty;
+    private string _firstMemberNickname = string.Empty;
+    private string _deleteHouseholdName = string.Empty;
     private string _mottoText = string.Empty;
-    private string _removeHouseholdName = string.Empty;
-    private AdminUserRow? _selectedUser;
-    private string _statusMessage = "Full admin (reports, users) will live on the web app. This window is a temporary helper.";
-    private string _dataUsedLabel = "Data used: not loaded.";
-    private string _vCoreLabel = "Free compute: …";
-    private string _lastClearedLabel = "Last cleared: not loaded.";
-    private bool _sqlBusy;
+    private MemberRow? _selectedMember;
+    private string _statusMessage = "Anyone in the household can add or remove members. Only an app admin can create or delete a household.";
+    private bool _changed;
 
-    public AdminViewModel(IIdentityService identity, ICaptureService captures, StorageModeClient mode, UserSession session)
+    public AdminViewModel(IIdentityService identity, UserSession session)
     {
         _identity = identity;
-        _captures = captures;
-        _mode = mode;
         _session = session;
-        Users = new ObservableCollection<AdminUserRow>();
-        AddUserCommand = new RelayCommand(AddUser);
-        CreateHouseholdCommand = new RelayCommand(CreateHousehold);
+        Members = new ObservableCollection<MemberRow>();
+        AddMemberCommand = new RelayCommand(AddMember);
+        CreateHouseholdCommand = new RelayCommand(CreateHousehold, () => _session.IsAppAdmin);
+        DeleteHouseholdCommand = new RelayCommand(DeleteHousehold, () => _session.IsAppAdmin);
         SaveMottoCommand = new RelayCommand(SaveMotto);
-        RemoveFromHouseholdCommand = new RelayCommand(RemoveFromHousehold);
-        LoadSqlDetailsCommand = new RelayCommand(LoadSqlDetails, () => !_sqlBusy && AzureSelected);
-        UseAzureCommand = new RelayCommand(() => SetMode("Azure"));
-        UseFileCommand = new RelayCommand(() => SetMode("File"));
-        try
-        {
-            _mode.Refresh();
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = ex.Message;
-        }
-
-        if (AzureSelected)
-        {
-            LoadVCore();
-        }
-        else
-        {
-            VCoreLabel = "Free compute: not used in File mode.";
-            DataUsedLabel = "Data used: JSON files on the API (no SQL).";
-            LastClearedLabel = "Last cleared: completed items are deleted in File mode.";
-            LoadFileUsers();
-        }
+        RemoveMemberCommand = new RelayCommand(RemoveMember);
+        MottoText = string.Empty;
+        ReloadMembers();
     }
 
-    public ObservableCollection<AdminUserRow> Users { get; }
+    public ObservableCollection<MemberRow> Members { get; }
 
-    public bool SqlWasUsed { get; private set; }
+    public bool Changed => _changed;
 
-    public bool AzureSelected => !_mode.IsFile;
+    public bool IsAppAdmin => _session.IsAppAdmin;
 
-    public bool FileSelected => _mode.IsFile;
-
-    public RelayCommand UseAzureCommand { get; }
-
-    public RelayCommand UseFileCommand { get; }
+    public string HouseholdName => _session.TenantName;
 
     public string WebAppUrl => AdminSnapshot.WebAppUrl;
-
-    public string DataUsedLabel
-    {
-        get => _dataUsedLabel;
-        private set => SetProperty(ref _dataUsedLabel, value);
-    }
-
-    public string VCoreLabel
-    {
-        get => _vCoreLabel;
-        private set => SetProperty(ref _vCoreLabel, value);
-    }
-
-    public string LastClearedLabel
-    {
-        get => _lastClearedLabel;
-        private set => SetProperty(ref _lastClearedLabel, value);
-    }
 
     public string NewEmail
     {
@@ -107,18 +55,6 @@ public sealed class AdminViewModel : ViewModelBase
     {
         get => _newNickname;
         set => SetProperty(ref _newNickname, value);
-    }
-
-    public string NewHousehold
-    {
-        get => _newHousehold;
-        set => SetProperty(ref _newHousehold, value);
-    }
-
-    public bool NewIsAppAdmin
-    {
-        get => _newIsAppAdmin;
-        set => SetProperty(ref _newIsAppAdmin, value);
     }
 
     public string NewHouseholdName
@@ -133,10 +69,22 @@ public sealed class AdminViewModel : ViewModelBase
         set => SetProperty(ref _newHouseholdMotto, value);
     }
 
-    public string MottoHouseholdName
+    public string FirstMemberEmail
     {
-        get => _mottoHouseholdName;
-        set => SetProperty(ref _mottoHouseholdName, value);
+        get => _firstMemberEmail;
+        set => SetProperty(ref _firstMemberEmail, value);
+    }
+
+    public string FirstMemberNickname
+    {
+        get => _firstMemberNickname;
+        set => SetProperty(ref _firstMemberNickname, value);
+    }
+
+    public string DeleteHouseholdName
+    {
+        get => _deleteHouseholdName;
+        set => SetProperty(ref _deleteHouseholdName, value);
     }
 
     public string MottoText
@@ -145,16 +93,10 @@ public sealed class AdminViewModel : ViewModelBase
         set => SetProperty(ref _mottoText, value);
     }
 
-    public AdminUserRow? SelectedUser
+    public MemberRow? SelectedMember
     {
-        get => _selectedUser;
-        set => SetProperty(ref _selectedUser, value);
-    }
-
-    public string RemoveHouseholdName
-    {
-        get => _removeHouseholdName;
-        set => SetProperty(ref _removeHouseholdName, value);
+        get => _selectedMember;
+        set => SetProperty(ref _selectedMember, value);
     }
 
     public string StatusMessage
@@ -163,36 +105,21 @@ public sealed class AdminViewModel : ViewModelBase
         set => SetProperty(ref _statusMessage, value);
     }
 
-    public RelayCommand AddUserCommand { get; }
+    public RelayCommand AddMemberCommand { get; }
     public RelayCommand CreateHouseholdCommand { get; }
+    public RelayCommand DeleteHouseholdCommand { get; }
     public RelayCommand SaveMottoCommand { get; }
-    public RelayCommand RemoveFromHouseholdCommand { get; }
-    public RelayCommand LoadSqlDetailsCommand { get; }
+    public RelayCommand RemoveMemberCommand { get; }
 
-    private void SetMode(string mode)
+    private async void ReloadMembers()
     {
         try
         {
-            StatusMessage = mode == "File"
-                ? "Switching to File (copies live SQL rows once if the folder is empty)…"
-                : "Switching to Azure SQL…";
-            _mode.Set(_session.Email, mode);
-            RaisePropertyChanged(nameof(AzureSelected));
-            RaisePropertyChanged(nameof(FileSelected));
-            LoadSqlDetailsCommand.RaiseCanExecuteChanged();
-            if (_mode.IsFile)
+            var members = await Task.Run(() => _identity.ListMembers(_session.TenantName).ToList());
+            Members.Clear();
+            foreach (var member in members)
             {
-                SqlWasUsed = true;
-                VCoreLabel = "Free compute: not used in File mode.";
-                DataUsedLabel = "Data used: JSON files on the API (no SQL).";
-                LastClearedLabel = "Last cleared: completed items are deleted in File mode.";
-                LoadFileUsers();
-                StatusMessage = "File mode on. SignalR is live. SQL buttons are off.";
-            }
-            else
-            {
-                LoadVCore();
-                StatusMessage = "Azure SQL mode on.";
+                Members.Add(member);
             }
         }
         catch (Exception ex)
@@ -201,116 +128,16 @@ public sealed class AdminViewModel : ViewModelBase
         }
     }
 
-    private async void LoadFileUsers()
+    private void AddMember()
     {
         try
         {
-            var users = await Task.Run(() => _identity.ListUsers().ToList());
-            Users.Clear();
-            foreach (var user in users)
-            {
-                Users.Add(user);
-            }
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = ex.Message;
-        }
-    }
-
-    private async void LoadVCore()
-    {
-        VCoreLabel = "Free compute: …";
-        try
-        {
-            var snap = await Task.Run(() => _captures.GetVCoreSnapshot());
-            ApplyVCore(snap);
-        }
-        catch (Exception ex)
-        {
-            VCoreLabel = $"Free compute: {ex.Message}";
-        }
-    }
-
-    private async void LoadSqlDetails()
-    {
-        _sqlBusy = true;
-        LoadSqlDetailsCommand.RaiseCanExecuteChanged();
-        SqlWasUsed = true;
-        DataUsedLabel = "Data used: connecting to Azure SQL…";
-        LastClearedLabel = "Last cleared: connecting to Azure SQL…";
-        StatusMessage = "Connecting to Azure SQL (paused databases take up to a minute)…";
-        try
-        {
-            var users = await Task.Run(() => _identity.ListUsers().ToList());
-            var snap = await Task.Run(() => _captures.GetSqlUsageSnapshot());
-            Users.Clear();
-            foreach (var user in users)
-            {
-                Users.Add(user);
-            }
-
-            ApplySqlUsage(snap);
-            StatusMessage = "Loaded storage, last cleared, and users from SQL.";
-        }
-        catch (Exception ex)
-        {
-            DataUsedLabel = "Data used: could not read.";
-            LastClearedLabel = ex.Message;
-            StatusMessage = ex.Message;
-        }
-        finally
-        {
-            _sqlBusy = false;
-            LoadSqlDetailsCommand.RaiseCanExecuteChanged();
-        }
-    }
-
-    private void ApplyVCore(AdminSnapshot snap)
-    {
-        if (snap.VCoreRemaining is { } left)
-        {
-            var usedPct = Math.Max(0, (AdminSnapshot.FreeVCoreSeconds - left) * 100.0 / AdminSnapshot.FreeVCoreSeconds);
-            var sample = snap.VCoreSampledAt is { } at
-                ? $" · Azure sample {at.ToLocalTime():g}"
-                : "";
-            VCoreLabel =
-                $"Free compute: {usedPct.ToString("0.#", CultureInfo.CurrentCulture)}% of 100,000 vCore-seconds used ({left.ToString("N0", CultureInfo.CurrentCulture)} left this month){sample}";
-        }
-        else
-        {
-            VCoreLabel = snap.VCoreError is { Length: > 0 } ? $"Free compute: {snap.VCoreError}" : "Free compute: not available.";
-        }
-    }
-
-    private void ApplySqlUsage(AdminSnapshot snap)
-    {
-        var mb = snap.DataUsedBytes / (1024.0 * 1024.0);
-        DataUsedLabel =
-            $"Data used: {snap.DataUsedPercent.ToString("0.###", CultureInfo.CurrentCulture)}% of 32 GB free ({mb.ToString("0.0", CultureInfo.CurrentCulture)} MB)";
-        if (snap.LastClearedAt is { } cleared)
-        {
-            var who = string.IsNullOrWhiteSpace(snap.LastClearedHousehold) ? "a household" : snap.LastClearedHousehold;
-            var note = snap.LastClearedIsApproximate ? " (last completed item; run database/08 then Clear list for an exact stamp)" : "";
-            LastClearedLabel = $"Last cleared: {who} · {cleared.ToLocalTime():g}{note}";
-        }
-        else
-        {
-            LastClearedLabel = "Last cleared: not recorded yet. Use Clear list after running database/08.";
-        }
-    }
-
-    private void AddUser()
-    {
-        try
-        {
-            SqlWasUsed = true;
-            _identity.AddUser(NewEmail, NewNickname, NewHousehold, NewNickname, NewIsAppAdmin);
-            StatusMessage = "User added.";
+            _identity.AddMember(_session.TenantName, NewEmail, NewNickname);
+            StatusMessage = "Member added. They sign in with that email and this household name.";
             NewEmail = string.Empty;
             NewNickname = string.Empty;
-            NewIsAppAdmin = false;
-            LoadSqlDetails();
+            _changed = true;
+            ReloadMembers();
         }
         catch (Exception ex)
         {
@@ -322,12 +149,29 @@ public sealed class AdminViewModel : ViewModelBase
     {
         try
         {
-            SqlWasUsed = true;
-            _identity.CreateHousehold(NewHouseholdName, NewHouseholdMotto);
-            StatusMessage = "Household created.";
+            _identity.CreateHousehold(NewHouseholdName, NewHouseholdMotto, FirstMemberEmail, FirstMemberNickname);
+            StatusMessage = "Household created with the first member.";
             NewHouseholdName = string.Empty;
             NewHouseholdMotto = string.Empty;
-            LoadSqlDetails();
+            FirstMemberEmail = string.Empty;
+            FirstMemberNickname = string.Empty;
+            _changed = true;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+        }
+    }
+
+    private void DeleteHousehold()
+    {
+        try
+        {
+            _identity.DeleteHousehold(DeleteHouseholdName);
+            StatusMessage = "Household deleted, including its list and members.";
+            DeleteHouseholdName = string.Empty;
+            _changed = true;
+            ReloadMembers();
         }
         catch (Exception ex)
         {
@@ -339,10 +183,9 @@ public sealed class AdminViewModel : ViewModelBase
     {
         try
         {
-            SqlWasUsed = true;
-            _identity.SetHouseholdMotto(MottoHouseholdName, MottoText);
+            _identity.SetHouseholdMotto(_session.TenantName, MottoText);
             StatusMessage = string.IsNullOrWhiteSpace(MottoText) ? "Motto cleared." : "Motto saved.";
-            LoadSqlDetails();
+            _changed = true;
         }
         catch (Exception ex)
         {
@@ -350,19 +193,19 @@ public sealed class AdminViewModel : ViewModelBase
         }
     }
 
-    private void RemoveFromHousehold()
+    private void RemoveMember()
     {
         try
         {
-            if (SelectedUser is null)
+            if (SelectedMember is null)
             {
-                throw new InvalidOperationException("Select a user in the list.");
+                throw new InvalidOperationException("Select a member in the list.");
             }
 
-            SqlWasUsed = true;
-            _identity.RemoveFromHousehold(SelectedUser.UserId, RemoveHouseholdName);
-            StatusMessage = "Removed from household.";
-            LoadSqlDetails();
+            _identity.RemoveFromHousehold(SelectedMember.UserId, _session.TenantName);
+            StatusMessage = "Removed from this household.";
+            _changed = true;
+            ReloadMembers();
         }
         catch (Exception ex)
         {

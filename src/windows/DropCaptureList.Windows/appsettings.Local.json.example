@@ -1,11 +1,3 @@
 {
-  "ApiBase": "https://droplist-azpcloud-api.azurewebsites.net",
-  "Sql": {
-    "Server": "",
-    "Database": "",
-    "UserId": "",
-    "TenantId": "",
-    "SubscriptionId": "",
-    "ResourceGroup": ""
-  }
+  "ApiBase": "https://droplist-azpcloud-api.azurewebsites.net"
 }

@@ -1,71 +1,45 @@
-using System.Net.Http;
-using System.Text;
 using System.Text.Json;
 
 namespace DropCaptureList.Windows.Services;
 
 public sealed class StorageModeClient
 {
-    private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(2) };
-    private readonly string? _base;
-
     public StorageModeClient(string? apiBase)
     {
-        _base = string.IsNullOrWhiteSpace(apiBase) ? null : apiBase.TrimEnd('/');
+        HasApi = !string.IsNullOrWhiteSpace(apiBase);
     }
 
-    public string Current { get; private set; } = "Azure";
+    public string Current => "File";
 
-    public bool IsFile => string.Equals(Current, "File", StringComparison.OrdinalIgnoreCase);
+    public bool IsFile => true;
 
-    public bool HasApi => !string.IsNullOrWhiteSpace(_base);
+    public bool HasApi { get; }
 
-    public event Action? Changed;
+    internal static string Problem(string body, string fallback) =>
+        Problem(body, statusCode: 0, path: null, fallback);
 
-    public string Refresh()
+    internal static string Problem(string body, System.Net.HttpStatusCode statusCode, string path)
     {
-        if (_base is null)
-        {
-            Current = "Azure";
-            return Current;
-        }
-
-        using var response = _http.GetAsync($"{_base}/api/storage-mode").GetAwaiter().GetResult();
-        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException("Could not read Azure / File mode from the API.");
-        }
-
-        using var doc = JsonDocument.Parse(body);
-        Current = doc.RootElement.TryGetProperty("mode", out var mode) ? mode.GetString() ?? "Azure" : "Azure";
-        Changed?.Invoke();
-        return Current;
+        return Problem(body, (int)statusCode, path, "API request failed.");
     }
 
-    public void Set(string email, string mode)
+    private static string Problem(string body, int statusCode, string? path, string fallback)
     {
-        if (_base is null)
+        var detail = ReadDetail(body);
+        if (statusCode == 404 && path is not null && path.StartsWith("/api/members", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("Set ApiBase in appsettings.Local.json to switch Azure / File.");
+            return "This API build does not have household members yet (404). Deploy the current API, or set ApiBase in appsettings.Local.json to a local dotnet run of src/api.";
         }
 
-        var payload = JsonSerializer.Serialize(new { email, mode });
-        using var content = new StringContent(payload, Encoding.UTF8, "application/json");
-        using var response = _http.PostAsync($"{_base}/api/storage-mode", content).GetAwaiter().GetResult();
-        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-        if (!response.IsSuccessStatusCode)
+        if (detail.Length > 0)
         {
-            throw new InvalidOperationException(Problem(body, "Could not switch Azure / File."));
+            return detail;
         }
 
-        using var doc = JsonDocument.Parse(body);
-        Current = doc.RootElement.TryGetProperty("mode", out var value) ? value.GetString() ?? mode : mode;
-        Changed?.Invoke();
+        return statusCode > 0 ? $"{fallback} ({statusCode})." : fallback;
     }
 
-    internal static string Problem(string body, string fallback)
+    private static string ReadDetail(string body)
     {
         try
         {
@@ -74,11 +48,16 @@ public sealed class StorageModeClient
             {
                 return text;
             }
+
+            if (doc.RootElement.TryGetProperty("title", out var title) && title.GetString() is { Length: > 0 } heading)
+            {
+                return heading;
+            }
         }
         catch (JsonException)
         {
         }
 
-        return fallback;
+        return "";
     }
 }

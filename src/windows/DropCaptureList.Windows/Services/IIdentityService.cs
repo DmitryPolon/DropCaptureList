@@ -8,8 +8,10 @@ public interface IIdentityService
     IReadOnlyList<LocalTenant> GetHouseholdsForUser(Guid userId);
     IReadOnlyList<string> KnownHouseholds();
     IReadOnlyList<AdminUserRow> ListUsers();
-    void AddUser(string email, string loginName, string householdName, string nickname, bool isAppAdmin);
-    void CreateHousehold(string name, string? motto = null);
+    IReadOnlyList<MemberRow> ListMembers(string household);
+    void AddMember(string household, string email, string nickname);
+    void CreateHousehold(string name, string? motto, string memberEmail, string memberNickname);
+    void DeleteHousehold(string name);
     void SetHouseholdMotto(string householdName, string motto);
     void RemoveFromHousehold(Guid userId, string householdName);
 }

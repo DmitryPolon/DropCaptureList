@@ -5,7 +5,7 @@ using DropCaptureList.Windows.Models;
 
 namespace DropCaptureList.Windows.Services;
 
-public sealed class ApiBackend
+public sealed class ApiBackend : IIdentityService, ICaptureService
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -70,9 +70,12 @@ public sealed class ApiBackend
         return JsonSerializer.Deserialize<List<ApiBrand>>(json, Json)?.Select(h => h.Name).ToList() ?? [];
     }
 
+    public IReadOnlyList<LocalTenant> GetHouseholdsForUser(Guid userId) => HouseholdsForUser(userId);
+
     public IReadOnlyList<AdminUserRow> ListUsers()
     {
-        var json = Get("/api/admin/users");
+        var email = Uri.EscapeDataString(LastEmail ?? "");
+        var json = Get($"/api/admin/users?email={email}");
         return JsonSerializer.Deserialize<List<ApiAdminUser>>(json, Json)?.Select(u => new AdminUserRow
         {
             UserId = u.UserId,
@@ -83,25 +86,102 @@ public sealed class ApiBackend
         }).ToList() ?? [];
     }
 
-    public void AddUser(string email, string loginName, string household, string nickname, bool isAppAdmin)
+    public IReadOnlyList<MemberRow> ListMembers(string household)
     {
-        Post("/api/admin/users", new { email, loginName, household, nickname, isAppAdmin });
+        var email = Uri.EscapeDataString(LastEmail ?? "");
+        var house = Uri.EscapeDataString(household);
+        var json = Get($"/api/members?email={email}&household={house}");
+        return JsonSerializer.Deserialize<List<ApiMember>>(json, Json)?.Select(m => new MemberRow
+        {
+            UserId = m.UserId,
+            Email = m.Email,
+            Nickname = m.Nickname,
+            IsAppAdmin = m.IsAppAdmin
+        }).ToList() ?? [];
     }
 
-    public void CreateHousehold(string name, string? motto)
+    public void AddMember(string household, string email, string nickname)
     {
-        Post("/api/admin/households", new { name, motto });
+        Post("/api/members", new { actorEmail = LastEmail, household, email, nickname });
     }
 
-    public void SetMotto(string household, string motto)
+    public void CreateHousehold(string name, string? motto, string memberEmail, string memberNickname)
     {
-        Post("/api/admin/motto", new { household, motto });
+        Post("/api/admin/households", new
+        {
+            actorEmail = LastEmail,
+            name,
+            motto,
+            memberEmail,
+            memberNickname
+        });
+    }
+
+    public void DeleteHousehold(string name)
+    {
+        Post("/api/admin/households/delete", new { actorEmail = LastEmail, name });
+    }
+
+    public void SetHouseholdMotto(string household, string motto)
+    {
+        Post("/api/admin/motto", new { actorEmail = LastEmail, household, motto });
     }
 
     public void RemoveFromHousehold(Guid userId, string household)
     {
-        Post("/api/admin/remove", new { userId, household });
+        Post("/api/members/remove", new { actorEmail = LastEmail, household, userId });
     }
+
+    public IReadOnlyList<CapturedItem> GetItems(Guid tenantId)
+    {
+        var household = LastHousehold;
+        if (string.IsNullOrWhiteSpace(household))
+        {
+            throw new InvalidOperationException("Sign in again so the list can load from the API.");
+        }
+
+        return ListItems(household);
+    }
+
+    public IReadOnlyList<CapturedItem> AddExcelCells(UserSession session, IEnumerable<ExcelCellText> cells)
+    {
+        throw new InvalidOperationException("Excel capture stays on this PC until you tap Save.");
+    }
+
+    public CaptureSaveResult SaveItems(UserSession session, IReadOnlyList<CapturedItem> items)
+    {
+        SaveItems(session.Email, session.TenantName, items);
+        return new CaptureSaveResult { Inserted = items.Count };
+    }
+
+    public int DeleteItems(Guid tenantId, IEnumerable<Guid> itemIds)
+    {
+        if (LastEmail is not { Length: > 0 } email || string.IsNullOrWhiteSpace(LastHousehold))
+        {
+            throw new InvalidOperationException("Sign in again so deletes can go through the API.");
+        }
+
+        var ids = itemIds.ToList();
+        DeleteItems(email, LastHousehold, ids);
+        return ids.Count;
+    }
+
+    public int CompleteHousehold(Guid tenantId, Guid completedByUserId)
+    {
+        if (LastEmail is not { Length: > 0 } email || string.IsNullOrWhiteSpace(LastHousehold))
+        {
+            throw new InvalidOperationException("Sign in again so the list can be cleared through the API.");
+        }
+
+        ClearList(email, LastHousehold);
+        return 1;
+    }
+
+    public int PurgeCompletedOlderThanOneMonth() => 0;
+
+    public AdminSnapshot GetVCoreSnapshot() => new();
+
+    public AdminSnapshot GetSqlUsageSnapshot() => new();
 
     public IReadOnlyList<CapturedItem> ListItems(string household)
     {
@@ -172,7 +252,7 @@ public sealed class ApiBackend
         var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException(StorageModeClient.Problem(body, "API request failed."));
+            throw new InvalidOperationException(StorageModeClient.Problem(body, response.StatusCode, path));
         }
 
         return body;
@@ -185,7 +265,7 @@ public sealed class ApiBackend
         var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException(StorageModeClient.Problem(body, "API request failed."));
+            throw new InvalidOperationException(StorageModeClient.Problem(body, response.StatusCode, path));
         }
 
         return body;
@@ -201,6 +281,14 @@ public sealed class ApiBackend
     private sealed class ApiBrand
     {
         public string Name { get; set; } = "";
+    }
+
+    private sealed class ApiMember
+    {
+        public Guid UserId { get; set; }
+        public string Email { get; set; } = "";
+        public string Nickname { get; set; } = "";
+        public bool IsAppAdmin { get; set; }
     }
 
     private sealed class ApiAdminUser
@@ -223,208 +311,5 @@ public sealed class ApiBackend
         public bool IsBold { get; set; }
         public string? FontColor { get; set; }
         public string? FillColor { get; set; }
-    }
-}
-
-public sealed class ModeAwareIdentity : IIdentityService
-{
-    private readonly StorageModeClient _mode;
-    private readonly IIdentityService _sql;
-    private readonly ApiBackend? _api;
-
-    public ModeAwareIdentity(StorageModeClient mode, IIdentityService sql, ApiBackend? api)
-    {
-        _mode = mode;
-        _sql = sql;
-        _api = api;
-    }
-
-    public UserSession SignIn(string emailOrLogin, string householdName)
-    {
-        EnsureMode();
-        if (!_mode.IsFile || _api is null)
-        {
-            return _sql.SignIn(emailOrLogin, householdName);
-        }
-
-        return _api.SignIn(emailOrLogin, householdName);
-    }
-
-    public IReadOnlyList<LocalTenant> GetHouseholdsForUser(Guid userId)
-    {
-        EnsureMode();
-        return _mode.IsFile && _api is not null ? _api.HouseholdsForUser(userId) : _sql.GetHouseholdsForUser(userId);
-    }
-
-    public IReadOnlyList<string> KnownHouseholds()
-    {
-        EnsureMode();
-        return _mode.IsFile && _api is not null ? _api.KnownHouseholds() : _sql.KnownHouseholds();
-    }
-
-    public IReadOnlyList<AdminUserRow> ListUsers()
-    {
-        EnsureMode();
-        return _mode.IsFile && _api is not null ? _api.ListUsers() : _sql.ListUsers();
-    }
-
-    public void AddUser(string email, string loginName, string householdName, string nickname, bool isAppAdmin)
-    {
-        EnsureMode();
-        if (_mode.IsFile && _api is not null)
-        {
-            _api.AddUser(email, loginName, householdName, nickname, isAppAdmin);
-            return;
-        }
-
-        _sql.AddUser(email, loginName, householdName, nickname, isAppAdmin);
-    }
-
-    public void CreateHousehold(string name, string? motto = null)
-    {
-        EnsureMode();
-        if (_mode.IsFile && _api is not null)
-        {
-            _api.CreateHousehold(name, motto);
-            return;
-        }
-
-        _sql.CreateHousehold(name, motto);
-    }
-
-    public void SetHouseholdMotto(string householdName, string motto)
-    {
-        EnsureMode();
-        if (_mode.IsFile && _api is not null)
-        {
-            _api.SetMotto(householdName, motto);
-            return;
-        }
-
-        _sql.SetHouseholdMotto(householdName, motto);
-    }
-
-    public void RemoveFromHousehold(Guid userId, string householdName)
-    {
-        EnsureMode();
-        if (_mode.IsFile && _api is not null)
-        {
-            _api.RemoveFromHousehold(userId, householdName);
-            return;
-        }
-
-        _sql.RemoveFromHousehold(userId, householdName);
-    }
-
-    private void EnsureMode()
-    {
-        if (_mode.HasApi)
-        {
-            try
-            {
-                _mode.Refresh();
-            }
-            catch
-            {
-            }
-        }
-    }
-}
-
-public sealed class ModeAwareCapture : ICaptureService
-{
-    private readonly StorageModeClient _mode;
-    private readonly ICaptureService _sql;
-    private readonly ApiBackend? _api;
-
-    public ModeAwareCapture(StorageModeClient mode, ICaptureService sql, ApiBackend? api)
-    {
-        _mode = mode;
-        _sql = sql;
-        _api = api;
-    }
-
-    public IReadOnlyList<CapturedItem> GetItems(Guid tenantId)
-    {
-        try
-        {
-            _mode.Refresh();
-        }
-        catch
-        {
-        }
-
-        if (_mode.IsFile && _api is not null)
-        {
-            var household = _api.LastHousehold;
-            if (string.IsNullOrWhiteSpace(household))
-            {
-                throw new InvalidOperationException("Sign in again so File mode can load the list from the API.");
-            }
-
-            return _api.ListItems(household);
-        }
-
-        return _sql.GetItems(tenantId);
-    }
-
-    public IReadOnlyList<CapturedItem> AddExcelCells(UserSession session, IEnumerable<ExcelCellText> cells)
-    {
-        return _sql.AddExcelCells(session, cells);
-    }
-
-    public CaptureSaveResult SaveItems(UserSession session, IReadOnlyList<CapturedItem> items)
-    {
-        if (UseFile(out var api, out var household))
-        {
-            api.SaveItems(session.Email, household, items);
-            return new CaptureSaveResult { Inserted = items.Count };
-        }
-
-        return _sql.SaveItems(session, items);
-    }
-
-    public int DeleteItems(Guid tenantId, IEnumerable<Guid> itemIds)
-    {
-        if (UseFile(out var api, out var household) && api.LastEmail is { } email)
-        {
-            var ids = itemIds.ToList();
-            api.DeleteItems(email, household, ids);
-            return ids.Count;
-        }
-
-        if (UseFile(out api, out household))
-        {
-            throw new InvalidOperationException("Sign in again so File mode can delete through the API.");
-        }
-
-        return _sql.DeleteItems(tenantId, itemIds);
-    }
-
-    public int CompleteHousehold(Guid tenantId, Guid completedByUserId)
-    {
-        if (UseFile(out var api, out var household) && api.LastEmail is { } email)
-        {
-            api.ClearList(email, household);
-            return 1;
-        }
-
-        return _sql.CompleteHousehold(tenantId, completedByUserId);
-    }
-
-    public int PurgeCompletedOlderThanOneMonth()
-    {
-        return _mode.IsFile ? 0 : _sql.PurgeCompletedOlderThanOneMonth();
-    }
-
-    public AdminSnapshot GetVCoreSnapshot() => _sql.GetVCoreSnapshot();
-
-    public AdminSnapshot GetSqlUsageSnapshot() => _sql.GetSqlUsageSnapshot();
-
-    private bool UseFile(out ApiBackend api, out string household)
-    {
-        api = _api!;
-        household = _api?.LastHousehold ?? "";
-        return _mode.IsFile && _api is not null && household.Length > 0;
     }
 }

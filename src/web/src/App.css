@@ -261,6 +261,72 @@
   opacity: 0.45;
 }
 
+.household-admin {
+  margin: 0 0 1rem;
+}
+
+.admin-card {
+  margin-top: 0.5rem;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.admin-heading {
+  margin: 1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+.admin-row,
+.admin-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.admin-stack {
+  flex-direction: column;
+}
+
+.admin-row input,
+.admin-stack input {
+  flex: 1;
+  min-width: 8rem;
+  font-size: 1rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.6rem;
+}
+
+.admin-row button,
+.admin-stack button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 0.6rem;
+  background: #1e3a5f;
+  color: #fff;
+  font-weight: 600;
+  padding: 0 0.9rem;
+}
+
+.member-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.member-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.95rem;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

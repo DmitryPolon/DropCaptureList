@@ -1,8 +1,6 @@
 # DropCaptureList
 
-**Version 0.1.0** (27 Aug 2026).
-
-Household shared list. **Windows** captures highlighted Excel cells (one cell = one record). **React** is the phone/web list: check off items, swipe to remove, household motto.
+Household shared list. **Windows** captures highlighted Excel cells (one cell = one row). **React** is the phone/web list: check off items, swipe to remove, add a task, household motto.
 
 Live site: **https://droplist.azpcloud.com**.
 
@@ -11,22 +9,52 @@ Open `DropCaptureList.slnx` in Visual Studio.
 ## What works today
 
 - WPF, .NET 9. Sign in with **email** and **household name** (not nickname). Session is stored on this PC (DPAPI) until **Sign out**.
-- Azure SQL with Microsoft Entra (no SQL password in the app). First Continue may show a Windows account picker; later launches reuse a cached token.
-- Excel capture via COM against the running Excel app (`ExcelSelectionCapture`). Empty cells skipped. Merged ranges count as one record.
-- **Delete selected** (Windows): hard delete, for cells that should never have been captured.
-- **Clear list** (Windows): mark remaining items completed; they stay in SQL and show gray.
-- Temporary WPF **Admin** (app admins): add user, create household, set motto, remove from household.
-- Web: letter mark + **bold motto**, Excel column layout, checkboxes, **swipe right** to remove, **Add** from the phone, **Save**, **Refresh**, **Clear completed**. There is no live SignalR feed; opening SQL is on purpose when you tap Save or Refresh.
+- Shared data is a **file store** on the API (JSON). There is no Azure SQL in the app.
+- Excel capture via COM against the running Excel app (`ExcelSelectionCapture`). Empty cells skipped. Merged ranges count as one record. Capture stays on this PC until **Save**.
+- Phone add / check / swipe write immediately. Check and swipe **delete** the row (nothing is archived).
+- **Household** on Windows and the web: any member can add or remove members by email. An **app admin** can create a household (with a first member email) or delete a household.
+- SignalR keeps phones and Windows in sync after a write.
 
 Word and Notepad capture are not in this build.
 
+## File store
+
+On Azure App Service the files live under `/home/droplist` (set `DataDirectory` locally if you want a custom folder).
+
+- `/home/droplist/users.json` — emails and app-admin flags
+- `/home/droplist/households/{household-name}/household.json` — members, motto, items
+- `/home/droplist/mode.json` — leftover from the old Azure/File switch; unused now
+
+Those files are the database. They are not in git. If they are missing on the API the site still starts, but **sign-in fails** until an app admin creates a household (first member by email), which writes `users.json` and the household folder.
+
+Windows and the phone talk to whatever `ApiBase` / `VITE_API_BASE` points at. Point them at the hosted API and they use `/home/droplist`. Point them at a local `dotnet run` API and they use `%LocalAppData%\DropCaptureList\file-store` (or `DataDirectory` in `src/api/appsettings.Local.json`). Those two folders are not the same store.
+
+Writes use a temp file then `File.Move` so a crash mid-write does not leave a half JSON file.
+
+## SignalR
+
+The hub is `/hubs/list`. After a client joins with the household name, it sits in a group for that household.
+
+Whenever the API writes the household file (add, check, swipe, Save from Windows, clear), it sends `listChanged` to that group. The phone and Windows reload the list. There is no push of the list payload — only a “reload” ping.
+
+A connected tab or Windows window also keeps the F1 App Service from sleeping. After ~20 minutes idle the API can still go cold; the next HTTP or reconnect wakes it.
+
+## Locking and concurrency
+
+`FileDirectory` takes a **single in-process lock** around load and save. That serializes requests on **one** API instance.
+
+This is not a cross-process or cross-machine file lock. The hosted API is one Linux F1 instance. Do not scale out to multiple instances against the same folder: two processes could interleave reads and writes and last write would win.
+
+Windows **Save** sends the whole in-memory capture in one bulk request, so that write is one locked update. Phone edits are one item at a time. Two people checking different rows is fine. Two people editing the same row at the same instant: the later write wins.
+
 ## Run locally
 
-1. Copy `appsettings.Local.json.example` to `appsettings.Local.json` next to the Windows project and `src/api` (gitignored). Fill in Server, Database, UserId, TenantId.
-2. Run SQL scripts as needed (`02`, then `04`–`07` if those columns/users are missing).
-3. `dotnet run --project src/api --launch-profile http`
-4. `npm install` then `npm run dev` in `src/web`
-5. http://localhost:5173 (same Wi‑Fi: Vite prints a LAN URL; `host: true` is on)
+1. Copy `appsettings.Local.json.example` to `appsettings.Local.json` next to the Windows project (set `ApiBase`) and optionally under `src/api` (`DataDirectory`).
+2. `dotnet run --project src/api --launch-profile http`
+3. `npm install` then `npm run dev` in `src/web`
+4. http://localhost:5173 (same Wi‑Fi: Vite prints a LAN URL; `host: true` is on)
+
+The first household on an empty store: call create-household with the first member email (that person becomes app admin). After that, only an app admin can create or delete households.
 
 ## Hosting and CI/CD
 
@@ -35,47 +63,24 @@ Word and Notepad capture are not in this build.
 | React | Azure Static Web Apps Free → `droplist.azpcloud.com` | $0 |
 | API | App Service Linux F1 `droplist-azpcloud-api` | $0 (sleeps when idle) |
 | Telemetry | Application Insights in the web resource group (connection string on the App Service, not in git) | free tier unless you exceed the included volume |
-| Data | Your existing Azure SQL | existing |
+| Data | JSON files on the API disk | included |
 
 GitHub Actions:
 
 - `.github/workflows/ci.yml` — build API + web on push/PR to `main`
 - `.github/workflows/deploy.yml` — deploy web (and PR preview URLs) + API on `main`. Web upload is `src/web/dist` after `npm run build` (not the Vite source `index.html`).
 
-Secrets: `AZURE_STATIC_WEB_APPS_API_TOKEN`, `AZURE_WEBAPP_PUBLISH_PROFILE`, `VITE_API_BASE`. SQL names stay in App Service settings. In Azure the API uses **Managed Identity** (run `database/07_GrantApiManagedIdentity.sql` as Entra SQL admin).
+Secrets: `AZURE_STATIC_WEB_APPS_API_TOKEN`, `AZURE_WEBAPP_PUBLISH_PROFILE`, `VITE_API_BASE`.
 
-### Save / refresh, stateless API, observability
+The API does not keep a login session store. Each request sends **email + household**. The browser keeps `localStorage`; Windows keeps `session.bin` (DPAPI).
 
-These are three different pieces:
+Application Insights: portal **Live Metrics**, **Failures**, **Performance**, **Logs**. Local `dotnet run` does not send telemetry unless you add that setting to gitignored `appsettings.Local.json`.
 
-- **Save / refresh.** There is no live SignalR feed. Windows **Save** / **Refresh** and the phone **Save** / **Refresh** buttons open SQL. Capture, Add, check, and swipe stay on the device until Save. Refresh loads the live list; completed items stay in SQL and drop off the screen.
-- **Stateless HTTP.** The API does not keep a login session store. Each request sends **email + household** and checks SQL. List data is in Azure SQL. The browser keeps `localStorage`; Windows keeps `session.bin` (DPAPI).
-- **Observability.** Application Insights on the App Service (connection string in app settings, not in git). Portal: the Insights resource in the same web resource group — **Live Metrics**, **Failures**, **Performance**, **Logs**. Local `dotnet run` does not send telemetry unless you add that setting to gitignored `appsettings.Local.json`.
-
-## Database scripts
-
-Create the database in the portal (or `database/CreateAzureSql.ps1` with names at runtime — do not commit those names). Connect with Microsoft Entra:
-
-1. `02_CreateTables.sql`
-2. `04_AddUserEmailAndAppAdmin.sql` if needed
-3. `05_AddItemDisplayFormat.sql` if needed
-4. `06_AddTenantMotto.sql` if needed
-5. `07_GrantApiManagedIdentity.sql` for the hosted API
-6. `08_AddTenantLastClearedAt.sql` so Admin can show the last Windows **Clear list** time
-
-`01` is optional LocalDB. `03_SeedDev.sql` is fake `mom`/`dad`/`Home` — do not run on a shared production database.
-
-`Users.IsAppAdmin` is not the same as household `Memberships.Role`.
-
-## Not built yet
-
-- Web admin
-- Word / Notepad capture
-- Weekly history report UI
+The `database/` folder is leftover Azure SQL scripts. The app does not use them.
 
 See [PLAN.md](PLAN.md).
 
 ## Requirements
 
 - Windows, .NET 9 SDK, Node.js 22+, Excel for capture
-- Azure SQL with Entra-only auth
+- API reachable from the phone and from Windows (`ApiBase`)

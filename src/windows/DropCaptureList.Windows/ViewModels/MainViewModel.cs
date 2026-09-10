@@ -27,7 +27,7 @@ public sealed class MainViewModel : ViewModelBase
     private int _lastPurgeCount;
 
     private const string OfflineStatus =
-        "Offline until you Save or Refresh. Capture stays on this PC; those buttons wake Azure SQL (paused databases take up to a minute).";
+        "Capture stays on this PC until Save. The phone list is live. Refresh reloads from the file store.";
 
     private double _cellWidth = 100;
 
@@ -53,7 +53,7 @@ public sealed class MainViewModel : ViewModelBase
         RefreshCommand = new RelayCommand(RefreshFromDatabase);
         ClearHouseholdCommand = new RelayCommand(ClearHousehold);
         SignOutCommand = new RelayCommand(SignOut);
-        OpenAdminCommand = new RelayCommand(OpenAdmin, () => session.IsAppAdmin);
+        OpenAdminCommand = new RelayCommand(OpenAdmin);
 
         Households = new ObservableCollection<LocalTenant>();
         Items = new ObservableCollection<CapturedItem>();
@@ -283,8 +283,8 @@ public sealed class MainViewModel : ViewModelBase
 
             RebuildReplica();
             StatusMessage = skipped == 0
-                ? (added == 1 ? "Added 1 cell. Save to write the database." : $"Added {added} cells. Save to write the database.")
-                : $"Added {added} cells, skipped {skipped} duplicate(s). Save to write the database.";
+                ? (added == 1 ? "Added 1 cell. Save to write the shared list." : $"Added {added} cells. Save to write the shared list.")
+                : $"Added {added} cells, skipped {skipped} duplicate(s). Save to write the shared list.";
         }
         catch (Exception ex)
         {
@@ -321,8 +321,8 @@ public sealed class MainViewModel : ViewModelBase
             StatusMessage = ConnectingStatus();
             await ReloadLiveListAsync();
             var loaded = Items.Count == 0
-                ? "Live list is empty. Completed items are not shown."
-                : $"Loaded {Items.Count} live items. Completed rows from the database are not shown.";
+                ? "Live list is empty."
+                : $"Loaded {Items.Count} live items.";
             StatusMessage = _lastPurgeCount > 0
                 ? $"Removed {_lastPurgeCount} completed item(s) older than a month. {loaded}"
                 : loaded;
@@ -406,7 +406,7 @@ public sealed class MainViewModel : ViewModelBase
             await ReloadLiveListAsync();
             StatusMessage = completed == 0
                 ? "Nothing left to complete."
-                : $"Marked {completed} items completed. Refresh dropped them from this list.";
+                : "Cleared the shared list.";
         }
         catch (Exception ex)
         {
@@ -434,23 +434,13 @@ public sealed class MainViewModel : ViewModelBase
 
     private string ConnectingStatus()
     {
-        return _storageMode.IsFile
-            ? "Updating the file list…"
-            : "Connecting to Azure SQL (paused databases take up to a minute)…";
+        return "Updating the shared list…";
     }
 
     private async Task StartFileLiveAsync()
     {
         var apiBase = AppConfiguration.LoadApiBase();
-        try
-        {
-            _storageMode.Refresh();
-        }
-        catch
-        {
-        }
-
-        if (!_storageMode.IsFile || string.IsNullOrWhiteSpace(apiBase))
+        if (string.IsNullOrWhiteSpace(apiBase))
         {
             await _live.Stop();
             return;
@@ -460,7 +450,7 @@ public sealed class MainViewModel : ViewModelBase
         {
             await _live.Start(apiBase, _session.TenantName, OnFileListChanged);
             await ReloadKeepingLocalAsync();
-            StatusMessage = "File mode. Phone adds show here. Capture still needs Save.";
+            StatusMessage = "Live with the phone. Capture still needs Save.";
         }
         catch (Exception ex)
         {
@@ -475,7 +465,7 @@ public sealed class MainViewModel : ViewModelBase
             try
             {
                 await ReloadKeepingLocalAsync();
-                StatusMessage = "List updated from the file (phone or another window).";
+                StatusMessage = "List updated (phone or another window).";
             }
             catch (Exception ex)
             {

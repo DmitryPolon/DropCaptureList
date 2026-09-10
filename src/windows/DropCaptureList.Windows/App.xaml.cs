@@ -13,9 +13,8 @@ public partial class App : Application
     private readonly IIdentityService _identity;
     private readonly ICaptureService _captures;
     private readonly ProtectedSessionStore _sessions;
-    private readonly AzureSqlConnectionFactory? _sqlConnections;
     private readonly StorageModeClient _storageMode;
-    private readonly ApiBackend? _api;
+    private readonly ApiBackend _api;
     private readonly ExcelSelectionCapture _excel = new();
 
     public App()
@@ -27,34 +26,15 @@ public partial class App : Application
         _sessions = new ProtectedSessionStore(System.IO.Path.Combine(dataDir, "session.bin"));
 
         var apiBase = AppConfiguration.LoadApiBase();
+        if (string.IsNullOrWhiteSpace(apiBase))
+        {
+            throw new InvalidOperationException("Set ApiBase in appsettings.Local.json (the hosted API URL).");
+        }
+
         _storageMode = new StorageModeClient(apiBase);
-        _api = string.IsNullOrWhiteSpace(apiBase) ? null : new ApiBackend(apiBase);
-
-        var sql = AppConfiguration.LoadSql();
-        IIdentityService localIdentity;
-        ICaptureService localCaptures;
-        if (sql.IsConfigured)
-        {
-            _sqlConnections = new AzureSqlConnectionFactory(sql, dataDir);
-            localIdentity = new SqlIdentityService(_sqlConnections);
-            localCaptures = new SqlCaptureService(_sqlConnections);
-        }
-        else
-        {
-            var store = new JsonFileCaptureStore(System.IO.Path.Combine(dataDir, "store.json"));
-            localIdentity = new LocalIdentityService(store);
-            localCaptures = new CaptureService(store);
-        }
-
-        _identity = new ModeAwareIdentity(_storageMode, localIdentity, _api);
-        _captures = new ModeAwareCapture(_storageMode, localCaptures, _api);
-        try
-        {
-            _storageMode.Refresh();
-        }
-        catch
-        {
-        }
+        _api = new ApiBackend(apiBase);
+        _identity = _api;
+        _captures = _api;
     }
 
     protected override void OnStartup(StartupEventArgs e)
@@ -97,17 +77,13 @@ public partial class App : Application
 
     private void ShowMain(UserSession session)
     {
-        if (_api is not null)
-        {
-            _api.LastEmail = session.Email;
-            _api.LastHousehold = session.TenantName;
-        }
+        _api.LastEmail = session.Email;
+        _api.LastHousehold = session.TenantName;
 
         var mainVm = new MainViewModel(session, _captures, _excel, _sessions, _identity, _storageMode, _api);
         var main = new MainWindow(mainVm);
         mainVm.SignedOut += (_, _) =>
         {
-            _sqlConnections?.ClearPersistedLogin();
             ShowLogin();
             main.Close();
         };

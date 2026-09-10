@@ -5,9 +5,6 @@ builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true);
 builder.Services.AddApplicationInsightsTelemetry();
 builder.Services.AddSignalR();
 
-var sql = new SqlSettings();
-builder.Configuration.GetSection("Sql").Bind(sql);
-
 var origins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
 var extra = builder.Configuration["Cors:Extra"]?
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -31,11 +28,6 @@ builder.Services.AddCors(options =>
 });
 
 var dataDirectory = DataPaths.Resolve(builder.Configuration);
-builder.Services.AddSingleton(sql);
-builder.Services.AddSingleton<AzureSql>();
-builder.Services.AddSingleton<Households>();
-builder.Services.AddSingleton<AppDirectory>();
-builder.Services.AddSingleton(new StorageMode(dataDirectory));
 builder.Services.AddSingleton(new FileDirectory(dataDirectory));
 builder.Services.AddSingleton<StoreFront>();
 builder.Services.AddSingleton<ListNotifier>();
@@ -43,34 +35,13 @@ builder.Services.AddSingleton<ListNotifier>();
 var app = builder.Build();
 app.UseCors();
 
-app.MapGet("/api/health", (StorageMode mode) => Results.Ok(new { ok = true, mode = mode.Kind.ToString() }));
+app.MapGet("/api/health", () => Results.Ok(new { ok = true, mode = "File" }));
 
-app.MapGet("/api/storage-mode", (StorageMode mode) => Results.Ok(new
+app.MapGet("/api/storage-mode", () => Results.Ok(new
 {
-    mode = mode.Kind.ToString(),
-    signalR = mode.IsFile
+    mode = "File",
+    signalR = true
 }));
-
-app.MapPost("/api/storage-mode", (SetModeRequest body, StoreFront store, ILogger<Program> log) =>
-{
-    try
-    {
-        var kind = string.Equals(body.Mode, "File", StringComparison.OrdinalIgnoreCase)
-            ? StorageKind.File
-            : StorageKind.Azure;
-        store.SetMode(kind, body.Email);
-        return Results.Ok(new { mode = store.Kind.ToString(), signalR = store.IsFile });
-    }
-    catch (InvalidOperationException ex)
-    {
-        return Results.Problem(ex.Message, statusCode: 400);
-    }
-    catch (Exception ex)
-    {
-        log.LogError(ex, "Could not switch storage mode.");
-        return Results.Problem("Could not switch storage mode.", statusCode: 503);
-    }
-});
 
 app.MapPost("/api/session", (SignInRequest body, StoreFront store, ILogger<Program> log) =>
 {
@@ -295,17 +266,26 @@ app.MapPost("/api/households/{household}/clear", async (
     }
 });
 
-app.MapGet("/api/admin/users", (StoreFront store) => Results.Ok(store.ListUsers()));
+app.MapGet("/api/admin/users", (string? email, StoreFront store) =>
+{
+    try
+    {
+        return Results.Ok(store.ListUsers(email ?? ""));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+});
 
 app.MapGet("/api/admin/households/{userId:guid}", (Guid userId, StoreFront store) =>
     Results.Ok(store.HouseholdsForUser(userId)));
 
-app.MapPost("/api/admin/users", (AdminUserRequest body, StoreFront store, ILogger<Program> log) =>
+app.MapGet("/api/members", (string email, string household, StoreFront store, ILogger<Program> log) =>
 {
     try
     {
-        store.AddUser(body.Email, body.LoginName, body.Household, body.Nickname, body.IsAppAdmin);
-        return Results.Ok(store.ListUsers());
+        return Results.Ok(store.ListMembers(email, household));
     }
     catch (InvalidOperationException ex)
     {
@@ -313,8 +293,44 @@ app.MapPost("/api/admin/users", (AdminUserRequest body, StoreFront store, ILogge
     }
     catch (Exception ex)
     {
-        log.LogError(ex, "Could not add user.");
-        return Results.Problem("Could not add the user.", statusCode: 503);
+        log.LogError(ex, "Could not list members.");
+        return Results.Problem("Could not load members.", statusCode: 503);
+    }
+});
+
+app.MapPost("/api/members", (MemberRequest body, StoreFront store, ILogger<Program> log) =>
+{
+    try
+    {
+        store.AddMember(body.ActorEmail, body.Household, body.Email, body.Nickname);
+        return Results.Ok(store.ListMembers(body.ActorEmail, body.Household));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Could not add member.");
+        return Results.Problem("Could not add the member.", statusCode: 503);
+    }
+});
+
+app.MapPost("/api/members/remove", (MemberRemoveRequest body, StoreFront store, ILogger<Program> log) =>
+{
+    try
+    {
+        store.RemoveMember(body.ActorEmail, body.Household, body.UserId);
+        return Results.Ok(store.ListMembers(body.ActorEmail, body.Household));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Could not remove member.");
+        return Results.Problem("Could not remove the member.", statusCode: 503);
     }
 });
 
@@ -322,7 +338,7 @@ app.MapPost("/api/admin/households", (AdminHouseholdRequest body, StoreFront sto
 {
     try
     {
-        store.CreateHousehold(body.Name, body.Motto);
+        store.CreateHousehold(body.ActorEmail, body.Name, body.Motto, body.MemberEmail, body.MemberNickname);
         return Results.Ok();
     }
     catch (InvalidOperationException ex)
@@ -336,11 +352,29 @@ app.MapPost("/api/admin/households", (AdminHouseholdRequest body, StoreFront sto
     }
 });
 
+app.MapPost("/api/admin/households/delete", (AdminDeleteHouseholdRequest body, StoreFront store, ILogger<Program> log) =>
+{
+    try
+    {
+        store.DeleteHousehold(body.ActorEmail, body.Name);
+        return Results.Ok();
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Could not delete household.");
+        return Results.Problem("Could not delete the household.", statusCode: 503);
+    }
+});
+
 app.MapPost("/api/admin/motto", (AdminMottoRequest body, StoreFront store, ILogger<Program> log) =>
 {
     try
     {
-        store.SetMotto(body.Household, body.Motto);
+        store.SetMotto(body.ActorEmail, body.Household, body.Motto);
         return Results.Ok();
     }
     catch (InvalidOperationException ex)
@@ -354,24 +388,6 @@ app.MapPost("/api/admin/motto", (AdminMottoRequest body, StoreFront store, ILogg
     }
 });
 
-app.MapPost("/api/admin/remove", (AdminRemoveRequest body, StoreFront store, ILogger<Program> log) =>
-{
-    try
-    {
-        store.RemoveFromHousehold(body.UserId, body.Household);
-        return Results.Ok(store.ListUsers());
-    }
-    catch (InvalidOperationException ex)
-    {
-        return Results.Problem(ex.Message, statusCode: 400);
-    }
-    catch (Exception ex)
-    {
-        log.LogError(ex, "Could not remove user.");
-        return Results.Problem("Could not remove the user.", statusCode: 503);
-    }
-});
-
 app.MapHub<ListHub>("/hubs/list");
 app.Run();
 
@@ -379,14 +395,14 @@ public sealed record SignInRequest(string Email, string Household);
 
 public sealed record AddItemRequest(string Email, string Household, string Text);
 
-public sealed record SetModeRequest(string Email, string Mode);
-
 public sealed record BulkItemsRequest(string Email, string Household, List<FileItem> Items);
 
-public sealed record AdminUserRequest(string Email, string LoginName, string Household, string Nickname, bool IsAppAdmin);
+public sealed record MemberRequest(string ActorEmail, string Household, string Email, string Nickname);
 
-public sealed record AdminHouseholdRequest(string Name, string? Motto);
+public sealed record MemberRemoveRequest(string ActorEmail, string Household, Guid UserId);
 
-public sealed record AdminMottoRequest(string Household, string Motto);
+public sealed record AdminHouseholdRequest(string ActorEmail, string Name, string? Motto, string MemberEmail, string MemberNickname);
 
-public sealed record AdminRemoveRequest(Guid UserId, string Household);
+public sealed record AdminDeleteHouseholdRequest(string ActorEmail, string Name);
+
+public sealed record AdminMottoRequest(string ActorEmail, string Household, string Motto);

@@ -20,11 +20,11 @@ public partial class MainWindow : Window
         Loaded += (_, _) => ViewModel.LoadFromStore();
         viewModel.AdminRequested += (_, _) =>
         {
-            var adminVm = new AdminViewModel(viewModel.Identity, viewModel.Captures, viewModel.StorageMode, viewModel.Session);
+            var adminVm = new AdminViewModel(viewModel.Identity, viewModel.Session);
             var admin = new AdminWindow(adminVm);
             admin.Owner = this;
             admin.ShowDialog();
-            if (adminVm.SqlWasUsed)
+            if (adminVm.Changed)
             {
                 ViewModel.LoadHouseholdsAfterAdmin();
             }
@@ -113,7 +113,7 @@ public partial class MainWindow : Window
     private void ClearHousehold_OnClick(object sender, RoutedEventArgs e)
     {
         var result = MessageBox.Show(
-            "Mark all items on this list as completed?\nThey stay in the database and leave this window on Refresh.",
+            "Remove every item on this household list? Checked and unchecked rows are deleted for everyone.",
             "Clear list",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question);

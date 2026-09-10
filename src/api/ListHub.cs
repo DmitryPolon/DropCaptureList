@@ -16,21 +16,14 @@ public sealed class ListHub : Hub
 public sealed class ListNotifier
 {
     private readonly IHubContext<ListHub> _hubs;
-    private readonly StorageMode _mode;
 
-    public ListNotifier(IHubContext<ListHub> hubs, StorageMode mode)
+    public ListNotifier(IHubContext<ListHub> hubs)
     {
         _hubs = hubs;
-        _mode = mode;
     }
 
     public Task ListChanged(string household)
     {
-        if (!_mode.IsFile)
-        {
-            return Task.CompletedTask;
-        }
-
         household = household.Trim().ToLowerInvariant();
         return string.IsNullOrWhiteSpace(household)
             ? Task.CompletedTask
