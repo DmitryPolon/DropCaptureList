@@ -13,7 +13,7 @@
                    Foreground="#64748B"
                    Margin="0,6,0,16"/>
 
-        <TextBlock Text="Email"/>
+        <TextBlock Text="Email or login name"/>
         <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,12"/>
 
         <TextBlock Text="Household"/>

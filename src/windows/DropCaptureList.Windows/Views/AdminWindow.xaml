@@ -23,6 +23,41 @@
                 </Hyperlink>
             </TextBlock>
 
+            <StackPanel Visibility="{Binding IsAppAdmin, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,16">
+                <TextBlock Text="Households" FontWeight="SemiBold"/>
+                <TextBlock Foreground="#64748B" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,8"
+                           Text="Create a household with the first member's email, or select one and add an email. Nickname defaults from the email."/>
+                <DataGrid Height="140"
+                          ItemsSource="{Binding Households}"
+                          SelectedItem="{Binding SelectedHousehold}"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False"
+                          Margin="0,0,0,8">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="140"/>
+                        <DataGridTextColumn Header="Emails" Binding="{Binding Emails}" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <TextBlock Text="New household" FontWeight="SemiBold"/>
+                <Grid Margin="0,6,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0" Text="{Binding NewHouseholdName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0" ToolTip="Household name"/>
+                    <TextBox Grid.Column="1" Text="{Binding FirstMemberEmail, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0" ToolTip="First member email"/>
+                    <Button Grid.Column="2" Content="Create" Width="90" Command="{Binding CreateHouseholdCommand}"/>
+                </Grid>
+                <TextBlock Text="Household name · first member email" Foreground="#64748B" FontSize="11" Margin="0,0,0,8"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button Content="Add email to selected" Padding="10,4" Command="{Binding AddFirstMemberCommand}"/>
+                    <Button Content="Delete selected" Margin="8,0,0,0" Padding="10,4" Command="{Binding DeleteHouseholdCommand}"/>
+                </StackPanel>
+            </StackPanel>
+
             <StackPanel>
                 <TextBlock Text="Household motto" FontWeight="SemiBold"/>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,4">
@@ -48,7 +83,7 @@
             </StackPanel>
 
             <StackPanel Margin="0,0,0,12">
-                <TextBlock Text="Members" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding MembersHeading}" FontWeight="SemiBold"/>
                 <Button Content="Remove selected" Margin="0,6,0,8" HorizontalAlignment="Left" Padding="10,4" Command="{Binding RemoveMemberCommand}"/>
                 <DataGrid Height="200"
                           ItemsSource="{Binding Members}"
@@ -63,37 +98,6 @@
                         <DataGridCheckBoxColumn Header="App admin" Binding="{Binding IsAppAdmin}" Width="90"/>
                     </DataGrid.Columns>
                 </DataGrid>
-            </StackPanel>
-
-            <StackPanel Visibility="{Binding IsAppAdmin, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <TextBlock Text="App admin" FontWeight="SemiBold" Margin="0,8,0,0"/>
-                <TextBlock Foreground="#64748B" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,8"
-                           Text="Create a household and add its first member. You can delete any household."/>
-                <TextBlock Text="Create household" FontWeight="SemiBold"/>
-                <Grid Margin="0,6,0,4">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="140"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <TextBox Grid.Row="0" Grid.Column="0" Text="{Binding NewHouseholdName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,6"/>
-                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding NewHouseholdMotto, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"/>
-                    <TextBox Grid.Row="1" Grid.Column="0" Text="{Binding FirstMemberEmail, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,6"/>
-                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding FirstMemberNickname, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"/>
-                    <Button Grid.Row="2" Grid.Column="0" Content="Create" Width="90" HorizontalAlignment="Left" Command="{Binding CreateHouseholdCommand}"/>
-                </Grid>
-                <TextBlock Text="Name · motto · first member email · nickname" Foreground="#64748B" FontSize="11" Margin="0,0,0,12"/>
-
-                <TextBlock Text="Delete household" FontWeight="SemiBold"/>
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,4">
-                    <TextBox Text="{Binding DeleteHouseholdName, UpdateSourceTrigger=PropertyChanged}" Width="220"/>
-                    <Button Content="Delete" Margin="8,0,0,0" Width="90" Command="{Binding DeleteHouseholdCommand}"/>
-                </StackPanel>
-                <TextBlock Text="Type the household name. This removes the folder, list, and memberships." Foreground="#64748B" FontSize="11"/>
             </StackPanel>
         </StackPanel>
         </ScrollViewer>

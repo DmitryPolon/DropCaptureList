@@ -278,6 +278,23 @@ app.MapGet("/api/admin/users", (string? email, StoreFront store) =>
     }
 });
 
+app.MapGet("/api/admin/directory", (string email, StoreFront store, ILogger<Program> log) =>
+{
+    try
+    {
+        return Results.Ok(store.ListDirectory(email));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Could not list household directory.");
+        return Results.Problem("Could not load households.", statusCode: 503);
+    }
+});
+
 app.MapGet("/api/admin/households/{userId:guid}", (Guid userId, StoreFront store) =>
     Results.Ok(store.HouseholdsForUser(userId)));
 

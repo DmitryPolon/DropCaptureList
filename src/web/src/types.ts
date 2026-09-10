@@ -7,6 +7,17 @@ export type Session = {
   isAppAdmin?: boolean;
 };
 
+export type HouseholdBrand = {
+  name: string;
+  motto: string;
+  logoLetter: string;
+};
+
+export type HouseholdDirectory = {
+  name: string;
+  emails: string;
+};
+
 export type Member = {
   userId: string;
   email: string;

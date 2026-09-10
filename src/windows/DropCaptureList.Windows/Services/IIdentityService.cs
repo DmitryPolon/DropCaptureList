@@ -7,6 +7,7 @@ public interface IIdentityService
     UserSession SignIn(string emailOrLogin, string householdName);
     IReadOnlyList<LocalTenant> GetHouseholdsForUser(Guid userId);
     IReadOnlyList<string> KnownHouseholds();
+    IReadOnlyList<LocalTenant> ListAllHouseholds();
     IReadOnlyList<AdminUserRow> ListUsers();
     IReadOnlyList<MemberRow> ListMembers(string household);
     void AddMember(string household, string email, string nickname);

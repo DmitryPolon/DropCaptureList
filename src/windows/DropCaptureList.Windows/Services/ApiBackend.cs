@@ -64,6 +64,17 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
         }).ToList() ?? [];
     }
 
+    public IReadOnlyList<LocalTenant> ListAllHouseholds()
+    {
+        var email = Uri.EscapeDataString(LastEmail ?? "");
+        var json = Get($"/api/admin/directory?email={email}");
+        return JsonSerializer.Deserialize<List<ApiDirectory>>(json, Json)?.Select(h => new LocalTenant
+        {
+            Name = h.Name,
+            Emails = h.Emails ?? ""
+        }).ToList() ?? [];
+    }
+
     public IReadOnlyList<string> KnownHouseholds()
     {
         var json = Get("/api/households");
@@ -278,9 +289,16 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
         public string? Motto { get; set; }
     }
 
+    private sealed class ApiDirectory
+    {
+        public string Name { get; set; } = "";
+        public string? Emails { get; set; }
+    }
+
     private sealed class ApiBrand
     {
         public string Name { get; set; } = "";
+        public string? Motto { get; set; }
     }
 
     private sealed class ApiMember

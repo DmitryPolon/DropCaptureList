@@ -327,6 +327,20 @@
   font-size: 0.95rem;
 }
 
+.house-pick {
+  border: 0;
+  background: none;
+  color: #0f172a;
+  text-align: left;
+  padding: 0.35rem 0;
+  min-height: 44px;
+  width: 100%;
+}
+
+.house-pick.on {
+  font-weight: 700;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

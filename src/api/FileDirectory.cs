@@ -83,8 +83,31 @@ public sealed class FileDirectory
 
         lock (_gate)
         {
-            var user = FindUser(email) ?? throw new InvalidOperationException(
-                "Unknown email. Sign in with the email stored for this user (check spelling). Household name is separate from nickname.");
+            var user = FindUser(email);
+            if (user is null)
+            {
+                var users = LoadUsers();
+                var claim = FindHousehold(household);
+                if (users.Count == 0 && claim is not null)
+                {
+                    user = new FileUser { Id = Guid.NewGuid(), Email = email, LoginName = email, IsAppAdmin = true };
+                    users.Add(user);
+                    SaveUsers(users);
+                    if (claim.Members.All(m => m.UserId != user.Id))
+                    {
+                        claim.Members.Add(new FileMember { UserId = user.Id, Nickname = email });
+                        SaveHousehold(claim);
+                    }
+                }
+                else
+                {
+                    var names = string.Join(", ", LoadHouseholds().Select(h => h.Name));
+                    var extra = names.Length == 0 ? "" : $" Households here: {names}.";
+                    throw new InvalidOperationException(
+                        "Unknown email or login name." + extra + " Use the value stored in users.json, not the nickname.");
+                }
+            }
+
             var house = FindHousehold(household) ?? throw new InvalidOperationException(
                 "That email is registered, but not in this household. Use the household name from the list (not the nickname).");
             var member = house.Members.FirstOrDefault(m => m.UserId == user.Id)
@@ -282,6 +305,10 @@ public sealed class FileDirectory
 
     public void CreateHouseholdWithMember(string name, string? motto, string memberEmail, string memberNickname)
     {
+        memberEmail = memberEmail.Trim();
+        memberNickname = string.IsNullOrWhiteSpace(memberNickname)
+            ? NicknameFromEmail(memberEmail)
+            : memberNickname.Trim();
         CreateHousehold(name, motto);
         var firstAdmin = !HasUsers();
         AddUser(memberEmail, memberNickname, name, memberNickname, isAppAdmin: firstAdmin);
@@ -354,6 +381,15 @@ public sealed class FileDirectory
         nickname = nickname.Trim();
         household = household.Trim();
         loginName = string.IsNullOrWhiteSpace(loginName) ? nickname : loginName.Trim();
+        if (string.IsNullOrWhiteSpace(nickname))
+        {
+            nickname = NicknameFromEmail(email);
+            if (string.IsNullOrWhiteSpace(loginName))
+            {
+                loginName = nickname;
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(nickname) || string.IsNullOrWhiteSpace(household))
         {
             throw new InvalidOperationException("Email, nickname, and household are required.");
@@ -515,6 +551,14 @@ public sealed class FileDirectory
         AtomicWrite(Path.Combine(dir, "household.json"), JsonSerializer.Serialize(house, Json));
     }
 
+    private static string NicknameFromEmail(string email)
+    {
+        email = email.Trim();
+        var at = email.IndexOf('@');
+        var nick = at > 0 ? email[..at] : email;
+        return string.IsNullOrWhiteSpace(nick) ? email : nick;
+    }
+
     private static string FolderName(string name)
     {
         var safe = Regex.Replace(name.Trim(), @"[^\w\- ]+", "", RegexOptions.CultureInvariant);
@@ -532,5 +576,7 @@ public sealed class FileDirectory
 public sealed record AdminUserDto(Guid UserId, string LoginName, string Email, bool IsAppAdmin, string Households);
 
 public sealed record HouseholdDto(Guid Id, string Name, string Motto);
+
+public sealed record HouseholdDirectoryDto(string Name, string Emails);
 
 public sealed record MemberDto(Guid UserId, string Email, string Nickname, bool IsAppAdmin);

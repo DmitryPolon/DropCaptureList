@@ -39,6 +39,17 @@ public sealed class StoreFront
         return _files.ListUsers();
     }
 
+    public IReadOnlyList<HouseholdDirectoryDto> ListDirectory(string actorEmail)
+    {
+        RequireAppAdmin(actorEmail);
+        return _files.ListHouseholds()
+            .Select(h => new HouseholdDirectoryDto(
+                h.Name,
+                string.Join(", ", _files.ListMembers(h.Name)
+                    .Select(m => string.IsNullOrWhiteSpace(m.Email) ? m.Nickname : m.Email))))
+            .ToList();
+    }
+
     public IReadOnlyList<HouseholdDto> HouseholdsForUser(Guid userId) => _files.HouseholdsForUser(userId);
 
     public IReadOnlyList<MemberDto> ListMembers(string actorEmail, string household)
