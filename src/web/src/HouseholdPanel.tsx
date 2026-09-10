@@ -290,12 +290,6 @@ export function HouseholdPanel({ session, onMotto, onPin, onError, onStatus }: P
       setBusy(false);
     }
   }
-    } catch (err: unknown) {
-      onError(err instanceof Error ? err.message : "Could not save the PIN.");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <section className="household-admin">
