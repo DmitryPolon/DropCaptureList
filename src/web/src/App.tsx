@@ -189,7 +189,7 @@ export default function App() {
         <p className="eyebrow">DropCaptureList</p>
         <h1 className="household">Household list</h1>
         <p className="hint login-hint">
-          Sign in with the email or login name stored for you, and the household name (for example DimaHouse), not your nickname.
+          Sign in with the email or login name stored for you, and the household name, not your nickname.
         </p>
         <form className="login" onSubmit={signIn}>
           <label>

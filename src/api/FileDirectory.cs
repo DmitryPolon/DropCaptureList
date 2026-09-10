@@ -101,10 +101,8 @@ public sealed class FileDirectory
                 }
                 else
                 {
-                    var names = string.Join(", ", LoadHouseholds().Select(h => h.Name));
-                    var extra = names.Length == 0 ? "" : $" Households here: {names}.";
                     throw new InvalidOperationException(
-                        "Unknown email or login name." + extra + " Use the value stored in users.json, not the nickname.");
+                        "Unknown email or login name. Use the email or login stored for this user, not the nickname.");
                 }
             }
 
