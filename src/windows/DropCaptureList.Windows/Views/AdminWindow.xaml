@@ -56,6 +56,15 @@
                     <Button Content="Add email to selected" Padding="10,4" Command="{Binding AddFirstMemberCommand}"/>
                     <Button Content="Delete selected" Margin="8,0,0,0" Padding="10,4" Command="{Binding DeleteHouseholdCommand}"/>
                 </StackPanel>
+                <TextBlock Text="Change PIN for selected household" FontWeight="SemiBold" Margin="0,8,0,0"/>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,4">
+                    <TextBox Text="{Binding NewPin, UpdateSourceTrigger=PropertyChanged}" Width="80" MaxLength="4"/>
+                    <Button Content="Set PIN" Margin="8,0,0,0" Padding="10,0" Command="{Binding SavePinCommand}"/>
+                    <Button Content="Reset PIN" Margin="8,0,0,0" Padding="10,0" Command="{Binding ResetPinCommand}"/>
+                </StackPanel>
+                <TextBlock Text="{Binding NewHouseholdPinNote}"
+                           Visibility="{Binding HasNewHouseholdPinNote, Converter={StaticResource BooleanToVisibilityConverter}}"
+                           Foreground="#64748B" FontSize="11" Margin="0,0,0,8" TextWrapping="Wrap"/>
             </StackPanel>
 
             <StackPanel>

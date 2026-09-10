@@ -6,7 +6,7 @@ public sealed class FileListListener : IAsyncDisposable
 {
     private HubConnection? _connection;
 
-    public async Task Start(string apiBase, string household, Action onChanged)
+    public async Task Start(string apiBase, string email, string household, string pin, Action onChanged)
     {
         await Stop();
         household = household.Trim();
@@ -22,11 +22,11 @@ public sealed class FileListListener : IAsyncDisposable
         hub.On("listChanged", onChanged);
         hub.Reconnected += async _ =>
         {
-            await hub.InvokeAsync("Join", household);
+            await hub.InvokeAsync("Join", email, household, pin);
             onChanged();
         };
         await hub.StartAsync();
-        await hub.InvokeAsync("Join", household);
+        await hub.InvokeAsync("Join", email, household, pin);
         _connection = hub;
     }
 

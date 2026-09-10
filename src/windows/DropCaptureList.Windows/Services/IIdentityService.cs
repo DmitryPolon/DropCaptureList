@@ -4,7 +4,7 @@ namespace DropCaptureList.Windows.Services;
 
 public interface IIdentityService
 {
-    UserSession SignIn(string emailOrLogin, string householdName);
+    UserSession SignIn(string emailOrLogin, string householdName, string? pin);
     IReadOnlyList<LocalTenant> GetHouseholdsForUser(Guid userId);
     IReadOnlyList<string> KnownHouseholds();
     IReadOnlyList<LocalTenant> ListAllHouseholds();
@@ -14,6 +14,8 @@ public interface IIdentityService
     void CreateHousehold(string name, string? motto, string memberEmail, string memberNickname);
     void DeleteHousehold(string name);
     void SetHouseholdMotto(string householdName, string motto);
+    void SetHouseholdPin(string householdName, string pin);
+    string GetNewHouseholdPin();
     void RemoveFromHousehold(Guid userId, string householdName);
 }
 

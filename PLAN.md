@@ -7,8 +7,8 @@ This is the product. Once the bugs are out and that loop works in real use, we a
 ## What it is
 
 - A **household** has a name, motto, members, and one live list.
-- Sign-in is **email + household name**. Display name on the list is the **nickname**.
-- An **app admin** creates or deletes households (first member by email). Household members add and remove members themselves.
+- Sign-in is **email + household name + four-digit PIN**. An app admin can change the PIN. Display name on the list is the **nickname**.
+- An **app admin** creates or deletes households (first member by email) and can change a household PIN. The initial PIN for a new household is configured on the API (not in git) and shown in the Household panel.
 - Capture: one Excel cell = one row. Stays on the PC until **Save**.
 - Phone: add, check, and swipe write immediately and **delete** the row. Nothing is archived.
 - File store on the API (`/home/droplist` on Azure). One F1 instance. In-process lock.

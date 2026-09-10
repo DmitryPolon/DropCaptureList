@@ -8,11 +8,11 @@ Open `DropCaptureList.slnx` in Visual Studio.
 
 ## What works today
 
-- WPF, .NET 9. Sign in with **email** and **household name** (not nickname). Session is stored on this PC (DPAPI) until **Sign out**.
+- WPF, .NET 9. Sign in with **email**, **household name**, and a **four-digit household PIN**. Session is stored on this PC (DPAPI) until **Sign out**.
 - Shared data is a **file store** on the API (JSON). There is no Azure SQL in the app.
 - Excel capture via COM against the running Excel app (`ExcelSelectionCapture`). Empty cells skipped. Merged ranges count as one record. Capture stays on this PC until **Save**.
 - Phone add / check / swipe write immediately. Check and swipe **delete** the row (nothing is archived).
-- **Household** on Windows and the web: any member can add or remove members by email. An **app admin** can create a household (with a first member email) or delete a household.
+- **Household** on Windows and the web: any member can add or remove members by email. An **app admin** can create a household (with a first member email), delete a household, or change that household’s PIN.
 - SignalR keeps phones and Windows in sync after a write.
 
 Word and Notepad capture are not in this build.
@@ -33,7 +33,7 @@ Writes use a temp file then `File.Move` so a crash mid-write does not leave a ha
 
 ## SignalR
 
-The hub is `/hubs/list`. After a client joins with the household name, it sits in a group for that household.
+The hub is `/hubs/list`. After a client joins with email, household, and PIN, it sits in a group for that household.
 
 Whenever the API writes the household file (add, check, swipe, Save from Windows, clear), it sends `listChanged` to that group. The phone and Windows reload the list. There is no push of the list payload — only a “reload” ping.
 
@@ -49,7 +49,7 @@ Windows **Save** sends the whole in-memory capture in one bulk request, so that 
 
 ## Run locally
 
-1. Copy `appsettings.Local.json.example` to `appsettings.Local.json` next to the Windows project (set `ApiBase`) and optionally under `src/api` (`DataDirectory`).
+1. Copy `appsettings.Local.json.example` to `appsettings.Local.json` next to the Windows project (set `ApiBase`) and optionally under `src/api` (`DataDirectory` and `Household:DefaultPin`). Do not commit those files.
 2. `dotnet run --project src/api --launch-profile http`
 3. `npm install` then `npm run dev` in `src/web`
 4. http://localhost:5173 (same Wi‑Fi: Vite prints a LAN URL; `host: true` is on)
@@ -72,7 +72,9 @@ GitHub Actions:
 
 Secrets: `AZURE_STATIC_WEB_APPS_API_TOKEN`, `AZURE_WEBAPP_PUBLISH_PROFILE`, `VITE_API_BASE`.
 
-The API does not keep a login session store. Each request sends **email + household**. The browser keeps `localStorage`; Windows keeps `session.bin` (DPAPI).
+On the API App Service, set application setting `Household__DefaultPin` (four digits). The same value lives in gitignored `src/api/appsettings.Local.json` for local runs. An app admin sees that initial PIN in the Household panel after sign-in. It is not in the git repo.
+
+The API does not keep a login session store. Each request sends **email + household + PIN**. The browser keeps `localStorage`; Windows keeps `session.bin` (DPAPI). The PIN is hashed (salt + SHA-256) in `household.json`; it is not stored as plain text on the server.
 
 Application Insights: portal **Live Metrics**, **Failures**, **Performance**, **Logs**. Local `dotnet run` does not send telemetry unless you add that setting to gitignored `appsettings.Local.json`.
 

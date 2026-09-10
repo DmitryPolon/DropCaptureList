@@ -4,7 +4,9 @@ export type Session = {
   household: string;
   motto: string;
   logoLetter: string;
+  pin: string;
   isAppAdmin?: boolean;
+  newHouseholdPin?: string | null;
 };
 
 export type HouseholdBrand = {

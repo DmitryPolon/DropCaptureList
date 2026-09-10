@@ -17,6 +17,7 @@ public sealed class AdminViewModel : ViewModelBase
     private string _firstMemberNickname = string.Empty;
     private string _deleteHouseholdName = string.Empty;
     private string _mottoText = string.Empty;
+    private string _newPin = string.Empty;
     private MemberRow? _selectedMember;
     private LocalTenant? _selectedHousehold;
     private string _statusMessage = "Anyone in the household can add or remove members. Only an app admin can create or delete a household.";
@@ -33,6 +34,8 @@ public sealed class AdminViewModel : ViewModelBase
         AddFirstMemberCommand = new RelayCommand(AddFirstMember, () => _session.IsAppAdmin);
         DeleteHouseholdCommand = new RelayCommand(DeleteHousehold, () => _session.IsAppAdmin);
         SaveMottoCommand = new RelayCommand(SaveMotto);
+        SavePinCommand = new RelayCommand(SavePin, () => _session.IsAppAdmin);
+        ResetPinCommand = new RelayCommand(ResetPin, () => _session.IsAppAdmin);
         RemoveMemberCommand = new RelayCommand(RemoveMember);
         MottoText = string.Empty;
         ReloadMembers();
@@ -62,6 +65,13 @@ public sealed class AdminViewModel : ViewModelBase
     public bool Changed => _changed;
 
     public bool IsAppAdmin => _session.IsAppAdmin;
+
+    public bool HasNewHouseholdPinNote => true;
+
+    public string NewHouseholdPinNote =>
+        string.IsNullOrWhiteSpace(_session.NewHouseholdPin)
+            ? "The current PIN cannot be shown. Set a new four-digit PIN, or Reset after the default PIN is loaded. You do not need the old PIN."
+            : $"Default PIN is {_session.NewHouseholdPin}. The current PIN cannot be shown. Set a new PIN or Reset — you do not need the old one. Members stay signed in until they sign out.";
 
     public string HouseholdName => _session.TenantName;
 
@@ -120,6 +130,12 @@ public sealed class AdminViewModel : ViewModelBase
         set => SetProperty(ref _mottoText, value);
     }
 
+    public string NewPin
+    {
+        get => _newPin;
+        set => SetProperty(ref _newPin, value);
+    }
+
     public MemberRow? SelectedMember
     {
         get => _selectedMember;
@@ -137,6 +153,8 @@ public sealed class AdminViewModel : ViewModelBase
     public RelayCommand AddFirstMemberCommand { get; }
     public RelayCommand DeleteHouseholdCommand { get; }
     public RelayCommand SaveMottoCommand { get; }
+    public RelayCommand SavePinCommand { get; }
+    public RelayCommand ResetPinCommand { get; }
     public RelayCommand RemoveMemberCommand { get; }
 
     private async void ReloadHouseholds()
@@ -153,6 +171,21 @@ public sealed class AdminViewModel : ViewModelBase
             foreach (var house in houses)
             {
                 Households.Add(house);
+            }
+
+            try
+            {
+                var defaultPin = await Task.Run(() => _identity.GetNewHouseholdPin());
+                if (!string.IsNullOrWhiteSpace(defaultPin))
+                {
+                    _session.NewHouseholdPin = defaultPin;
+                    RaisePropertyChanged(nameof(NewHouseholdPinNote));
+                    RaisePropertyChanged(nameof(HasNewHouseholdPinNote));
+                }
+            }
+            catch (Exception)
+            {
+                /* Older API has no default-PIN route. Set PIN still works after deploy. */
             }
 
             if (SelectedHousehold is null)
@@ -270,6 +303,70 @@ public sealed class AdminViewModel : ViewModelBase
         {
             _identity.SetHouseholdMotto(_session.TenantName, MottoText);
             StatusMessage = string.IsNullOrWhiteSpace(MottoText) ? "Motto cleared." : "Motto saved.";
+            _changed = true;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+        }
+    }
+
+    private void SavePin()
+    {
+        try
+        {
+            var house = SelectedHousehold?.Name ?? _session.TenantName;
+            _identity.SetHouseholdPin(house, NewPin);
+            if (string.Equals(house, _session.TenantName, StringComparison.OrdinalIgnoreCase))
+            {
+                _session.Pin = NewPin.Trim();
+            }
+
+            StatusMessage = $"PIN updated for {house}. Other devices must sign in again with the new PIN.";
+            NewPin = string.Empty;
+            _changed = true;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+        }
+    }
+
+    private void ResetPin()
+    {
+        try
+        {
+            var defaultPin = _session.NewHouseholdPin;
+            if (string.IsNullOrWhiteSpace(defaultPin))
+            {
+                defaultPin = _identity.GetNewHouseholdPin();
+                _session.NewHouseholdPin = defaultPin;
+                RaisePropertyChanged(nameof(NewHouseholdPinNote));
+            }
+
+            if (string.IsNullOrWhiteSpace(defaultPin))
+            {
+                throw new InvalidOperationException("Could not load the default PIN.");
+            }
+
+            var house = SelectedHousehold?.Name ?? _session.TenantName;
+            var confirm = System.Windows.MessageBox.Show(
+                $"Reset the PIN for {house} to the default? Everyone must use that PIN the next time they sign in.",
+                "Reset PIN",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Question);
+            if (confirm != System.Windows.MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            _identity.SetHouseholdPin(house, defaultPin);
+            if (string.Equals(house, _session.TenantName, StringComparison.OrdinalIgnoreCase))
+            {
+                _session.Pin = defaultPin;
+            }
+
+            StatusMessage = $"PIN for {house} was reset to the default. Other devices must sign in again.";
             _changed = true;
         }
         catch (Exception ex)

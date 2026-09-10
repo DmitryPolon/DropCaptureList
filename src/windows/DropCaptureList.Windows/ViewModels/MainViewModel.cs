@@ -112,6 +112,8 @@ public sealed class MainViewModel : ViewModelBase
                 Nickname = _session.Nickname,
                 TenantId = value.Id,
                 TenantName = value.Name,
+                Pin = _session.Pin,
+                NewHouseholdPin = _session.NewHouseholdPin,
                 IsAppAdmin = _session.IsAppAdmin
             };
             _sessions.Save(_session);
@@ -119,6 +121,7 @@ public sealed class MainViewModel : ViewModelBase
             {
                 _api.LastEmail = _session.Email;
                 _api.LastHousehold = _session.TenantName;
+                _api.LastPin = _session.Pin;
             }
 
             RaisePropertyChanged(nameof(HouseholdLabel));
@@ -448,7 +451,7 @@ public sealed class MainViewModel : ViewModelBase
 
         try
         {
-            await _live.Start(apiBase, _session.TenantName, OnFileListChanged);
+            await _live.Start(apiBase, _session.Email ?? "", _session.TenantName, _session.Pin ?? "", OnFileListChanged);
             await ReloadKeepingLocalAsync();
             StatusMessage = "Live with the phone. Capture still needs Save.";
         }
@@ -495,6 +498,13 @@ public sealed class MainViewModel : ViewModelBase
     {
         try
         {
+            _sessions.Save(_session);
+            if (_api is not null)
+            {
+                _api.LastPin = _session.Pin;
+                _api.LastHousehold = _session.TenantName;
+            }
+
             var userId = _session.UserId;
             var households = await Task.Run(() => _identity.GetHouseholdsForUser(userId).ToList());
             ReloadHouseholds(households);

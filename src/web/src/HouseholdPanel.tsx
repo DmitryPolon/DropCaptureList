@@ -9,11 +9,12 @@ function problemMessage(body: { detail?: string; title?: string }, fallback: str
 type Props = {
   session: Session;
   onMotto: (motto: string) => void;
+  onPin: (pin: string) => void;
   onError: (message: string | null) => void;
   onStatus: (message: string) => void;
 };
 
-export function HouseholdPanel({ session, onMotto, onError, onStatus }: Props) {
+export function HouseholdPanel({ session, onMotto, onPin, onError, onStatus }: Props) {
   const [open, setOpen] = useState(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [houses, setHouses] = useState<HouseholdDirectory[]>([]);
@@ -23,7 +24,17 @@ export function HouseholdPanel({ session, onMotto, onError, onStatus }: Props) {
   const [motto, setMotto] = useState(session.motto);
   const [houseName, setHouseName] = useState("");
   const [firstEmail, setFirstEmail] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [defaultPin, setDefaultPin] = useState(session.newHouseholdPin ?? "");
   const [busy, setBusy] = useState(false);
+
+  function actor() {
+    return {
+      actorEmail: session.email,
+      pin: session.pin,
+      actorHousehold: session.household
+    };
+  }
 
   useEffect(() => {
     if (open) {
@@ -37,13 +48,24 @@ export function HouseholdPanel({ session, onMotto, onError, onStatus }: Props) {
   async function loadHouses() {
     try {
       const response = await fetch(
-        apiUrl(`/api/admin/directory?email=${encodeURIComponent(session.email)}`)
+        apiUrl(
+          `/api/admin/directory?email=${encodeURIComponent(session.email)}&household=${encodeURIComponent(session.household)}&pin=${encodeURIComponent(session.pin)}`
+        )
       );
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(problemMessage(body, "Could not load households."));
       }
       setHouses(body as HouseholdDirectory[]);
+      const pinResponse = await fetch(
+        apiUrl(
+          `/api/admin/new-household-pin?email=${encodeURIComponent(session.email)}&household=${encodeURIComponent(session.household)}&pin=${encodeURIComponent(session.pin)}`
+        )
+      );
+      const pinBody = await pinResponse.json().catch(() => ({}));
+      if (pinResponse.ok && typeof (pinBody as { pin?: string }).pin === "string") {
+        setDefaultPin((pinBody as { pin: string }).pin);
+      }
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : "Could not load households.");
     }
@@ -53,7 +75,7 @@ export function HouseholdPanel({ session, onMotto, onError, onStatus }: Props) {
     try {
       const response = await fetch(
         apiUrl(
-          `/api/members?email=${encodeURIComponent(session.email)}&household=${encodeURIComponent(household)}`
+          `/api/members?email=${encodeURIComponent(session.email)}&household=${encodeURIComponent(household)}&pin=${encodeURIComponent(session.pin)}&actorHousehold=${encodeURIComponent(session.household)}`
         )
       );
       const body = await response.json().catch(() => ({}));
@@ -86,7 +108,7 @@ export function HouseholdPanel({ session, onMotto, onError, onStatus }: Props) {
     try {
       const house = selectedHouse || session.household;
       const body = await post("/api/members", {
-        actorEmail: session.email,
+        ...actor(),
         household: house,
         email,
         nickname
@@ -111,7 +133,7 @@ export function HouseholdPanel({ session, onMotto, onError, onStatus }: Props) {
     try {
       const house = selectedHouse || session.household;
       const body = await post("/api/members/remove", {
-        actorEmail: session.email,
+        ...actor(),
         household: house,
         userId: member.userId
       });
@@ -130,7 +152,7 @@ export function HouseholdPanel({ session, onMotto, onError, onStatus }: Props) {
     onError(null);
     try {
       await post("/api/admin/motto", {
-        actorEmail: session.email,
+        ...actor(),
         household: session.household,
         motto
       });
@@ -149,7 +171,7 @@ export function HouseholdPanel({ session, onMotto, onError, onStatus }: Props) {
     onError(null);
     try {
       await post("/api/admin/households", {
-        actorEmail: session.email,
+        ...actor(),
         name: houseName,
         motto: "",
         memberEmail: firstEmail,
@@ -177,7 +199,7 @@ export function HouseholdPanel({ session, onMotto, onError, onStatus }: Props) {
     onError(null);
     try {
       await post("/api/members", {
-        actorEmail: session.email,
+        ...actor(),
         household: house,
         email: firstEmail,
         nickname: ""
@@ -205,7 +227,7 @@ export function HouseholdPanel({ session, onMotto, onError, onStatus }: Props) {
     onError(null);
     try {
       await post("/api/admin/households/delete", {
-        actorEmail: session.email,
+        ...actor(),
         name: house
       });
       setSelectedHouse("");
@@ -213,6 +235,63 @@ export function HouseholdPanel({ session, onMotto, onError, onStatus }: Props) {
       await loadHouses();
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : "Could not delete the household.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function savePin(event: FormEvent) {
+    event.preventDefault();
+    const house = selectedHouse || session.household;
+    setBusy(true);
+    onError(null);
+    try {
+      await post("/api/admin/pin", {
+        ...actor(),
+        household: house,
+        newPin
+      });
+      if (house.toLowerCase() === session.household.toLowerCase()) {
+        onPin(newPin.trim());
+      }
+      setNewPin("");
+      onStatus(`PIN updated for ${house}. Other devices must sign in again with the new PIN.`);
+    } catch (err: unknown) {
+      onError(err instanceof Error ? err.message : "Could not save the PIN.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetPin() {
+    const house = selectedHouse || session.household;
+    if (!defaultPin) {
+      onError("Could not load the default PIN.");
+      return;
+    }
+    if (!window.confirm(`Reset the PIN for ${house} to the default? Everyone must use that PIN the next time they sign in.`)) {
+      return;
+    }
+    setBusy(true);
+    onError(null);
+    try {
+      await post("/api/admin/pin", {
+        ...actor(),
+        household: house,
+        newPin: defaultPin
+      });
+      if (house.toLowerCase() === session.household.toLowerCase()) {
+        onPin(defaultPin);
+      }
+      onStatus(`PIN for ${house} was reset to the default. Other devices must sign in again.`);
+    } catch (err: unknown) {
+      onError(err instanceof Error ? err.message : "Could not reset the PIN.");
+    } finally {
+      setBusy(false);
+    }
+  }
+    } catch (err: unknown) {
+      onError(err instanceof Error ? err.message : "Could not save the PIN.");
     } finally {
       setBusy(false);
     }
@@ -263,6 +342,28 @@ export function HouseholdPanel({ session, onMotto, onError, onStatus }: Props) {
                   Delete selected
                 </button>
               </div>
+              <form className="admin-row" onSubmit={savePin}>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={newPin}
+                  onChange={(event) => setNewPin(event.target.value)}
+                  placeholder="New PIN for selected"
+                  required
+                />
+                <button type="submit" disabled={busy}>
+                  Set PIN
+                </button>
+                <button type="button" disabled={busy || !defaultPin} onClick={() => void resetPin()}>
+                  Reset PIN
+                </button>
+              </form>
+              <p className="hint">
+                {defaultPin
+                  ? `Default PIN is ${defaultPin}. The current PIN cannot be shown. Set a new one or Reset — you do not need the old PIN.`
+                  : "The current PIN cannot be shown. Set a new four-digit PIN to replace a forgotten one. You do not need the old PIN."}
+              </p>
             </>
           ) : null}
           <p className="hint">

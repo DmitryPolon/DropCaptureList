@@ -12,7 +12,14 @@ const sessionKey = "dropcapturelist.web.session";
 function loadSession(): Session | null {
   try {
     const raw = localStorage.getItem(sessionKey);
-    return raw ? (JSON.parse(raw) as Session) : null;
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Session;
+    if (!parsed.pin) {
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -34,6 +41,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
   const [email, setEmail] = useState("");
   const [household, setHousehold] = useState("");
+  const [pin, setPin] = useState("");
   const [draft, setDraft] = useState("");
   const [items, setItems] = useState<ListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +56,7 @@ export default function App() {
     void refresh();
     let stop = false;
     let connection: { stop: () => Promise<void> } | null = null;
-    connectList(session.household, () => {
+    connectList(session.email, session.household, session.pin, () => {
       if (!stop) {
         void refresh();
       }
@@ -63,7 +71,7 @@ export default function App() {
       stop = true;
       void connection?.stop();
     };
-  }, [session?.household]);
+  }, [session?.email, session?.household, session?.pin]);
 
   function signOut() {
     localStorage.removeItem(sessionKey);
@@ -80,13 +88,13 @@ export default function App() {
       const response = await fetch(apiUrl("/api/session"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, household })
+        body: JSON.stringify({ email, household, pin })
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(problemMessage(body, "Could not sign in."));
       }
-      const next = body as Session;
+      const next = { ...(body as Session), pin };
       localStorage.setItem(sessionKey, JSON.stringify(next));
       setSession(next);
       setItems([]);
@@ -108,6 +116,7 @@ export default function App() {
       body: JSON.stringify({
         email: session.email,
         household: session.household,
+        pin: session.pin,
         ...extra
       })
     });
@@ -125,7 +134,9 @@ export default function App() {
     setError(null);
     try {
       const response = await fetch(
-        apiUrl(`/api/households/${encodeURIComponent(session.household)}/items`)
+        apiUrl(
+          `/api/households/${encodeURIComponent(session.household)}/items?email=${encodeURIComponent(session.email)}&pin=${encodeURIComponent(session.pin)}`
+        )
       );
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -189,7 +200,7 @@ export default function App() {
         <p className="eyebrow">DropCaptureList</p>
         <h1 className="household">Household list</h1>
         <p className="hint login-hint">
-          Sign in with the email or login name stored for you, and the household name, not your nickname.
+          Sign in with the email or login name stored for you, the household name (not your nickname), and the household PIN.
         </p>
         <form className="login" onSubmit={signIn}>
           <label>
@@ -207,6 +218,18 @@ export default function App() {
             <input
               value={household}
               onChange={(event) => setHousehold(event.target.value)}
+              required
+            />
+          </label>
+          <label>
+            PIN
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={4}
+              value={pin}
+              onChange={(event) => setPin(event.target.value)}
               required
             />
           </label>
@@ -250,6 +273,11 @@ export default function App() {
         session={session}
         onMotto={(motto) => {
           const next = { ...session, motto };
+          localStorage.setItem(sessionKey, JSON.stringify(next));
+          setSession(next);
+        }}
+        onPin={(nextPin) => {
+          const next = { ...session, pin: nextPin };
           localStorage.setItem(sessionKey, JSON.stringify(next));
           setSession(next);
         }}

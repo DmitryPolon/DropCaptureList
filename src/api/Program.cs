@@ -28,7 +28,8 @@ builder.Services.AddCors(options =>
 });
 
 var dataDirectory = DataPaths.Resolve(builder.Configuration);
-builder.Services.AddSingleton(new FileDirectory(dataDirectory));
+var defaultPin = builder.Configuration["Household:DefaultPin"];
+builder.Services.AddSingleton(new FileDirectory(dataDirectory, defaultPin ?? ""));
 builder.Services.AddSingleton<StoreFront>();
 builder.Services.AddSingleton<ListNotifier>();
 
@@ -47,7 +48,8 @@ app.MapPost("/api/session", (SignInRequest body, StoreFront store, ILogger<Progr
 {
     try
     {
-        var session = store.SignIn(body.Email, body.Household);
+        var session = store.SignIn(body.Email, body.Household, body.Pin);
+        var isAppAdmin = store.IsAppAdmin(session.Email);
         return Results.Ok(new
         {
             email = session.Email,
@@ -56,7 +58,8 @@ app.MapPost("/api/session", (SignInRequest body, StoreFront store, ILogger<Progr
             motto = session.Motto,
             logoLetter = session.LogoLetter,
             userId = session.UserId,
-            isAppAdmin = store.IsAppAdmin(session.Email)
+            isAppAdmin,
+            newHouseholdPin = isAppAdmin ? store.NewHouseholdPin : null
         });
     }
     catch (InvalidOperationException ex)
@@ -87,11 +90,15 @@ app.MapGet("/api/households", (StoreFront store, ILogger<Program> log) =>
     }
 });
 
-app.MapGet("/api/households/{household}/items", (string household, StoreFront store, ILogger<Program> log) =>
+app.MapGet("/api/households/{household}/items", (string household, string email, string? pin, StoreFront store, ILogger<Program> log) =>
 {
     try
     {
-        return Results.Ok(store.ListItems(household));
+        return Results.Ok(store.ListItems(email, household, pin));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
     }
     catch (Exception ex)
     {
@@ -114,9 +121,9 @@ app.MapPost("/api/households/{household}/items", async (
             return Results.Problem("Household does not match.", statusCode: 400);
         }
 
-        store.AddTextItem(body.Email, household, body.Text);
+        store.AddTextItem(body.Email, household, body.Pin, body.Text);
         await notifier.ListChanged(household);
-        return Results.Ok(store.ListItems(household));
+        return Results.Ok(store.ListItems(body.Email, household, body.Pin));
     }
     catch (InvalidOperationException ex)
     {
@@ -138,9 +145,9 @@ app.MapPost("/api/households/{household}/items/bulk", async (
 {
     try
     {
-        store.UpsertItems(body.Email, household, body.Items);
+        store.UpsertItems(body.Email, household, body.Pin, body.Items);
         await notifier.ListChanged(household);
-        return Results.Ok(store.ListItems(household));
+        return Results.Ok(store.ListItems(body.Email, household, body.Pin));
     }
     catch (InvalidOperationException ex)
     {
@@ -168,9 +175,9 @@ app.MapPost("/api/households/{household}/items/{itemId:guid}/toggle", async (
             return Results.Problem("Household does not match.", statusCode: 400);
         }
 
-        store.ToggleComplete(body.Email, household, itemId);
+        store.ToggleComplete(body.Email, household, body.Pin, itemId);
         await notifier.ListChanged(household);
-        return Results.Ok(store.ListItems(household));
+        return Results.Ok(store.ListItems(body.Email, household, body.Pin));
     }
     catch (InvalidOperationException ex)
     {
@@ -198,9 +205,9 @@ app.MapPost("/api/households/{household}/items/{itemId:guid}/remove", async (
             return Results.Problem("Household does not match.", statusCode: 400);
         }
 
-        store.RemoveItem(body.Email, household, itemId);
+        store.RemoveItem(body.Email, household, body.Pin, itemId);
         await notifier.ListChanged(household);
-        return Results.Ok(store.ListItems(household));
+        return Results.Ok(store.ListItems(body.Email, household, body.Pin));
     }
     catch (InvalidOperationException ex)
     {
@@ -227,9 +234,9 @@ app.MapPost("/api/households/{household}/completed/clear", async (
             return Results.Problem("Household does not match.", statusCode: 400);
         }
 
-        store.ClearCompleted(body.Email, household);
+        store.ClearCompleted(body.Email, household, body.Pin);
         await notifier.ListChanged(household);
-        return Results.Ok(store.ListItems(household));
+        return Results.Ok(store.ListItems(body.Email, household, body.Pin));
     }
     catch (InvalidOperationException ex)
     {
@@ -251,9 +258,9 @@ app.MapPost("/api/households/{household}/clear", async (
 {
     try
     {
-        store.ClearAll(body.Email, household);
+        store.ClearAll(body.Email, household, body.Pin);
         await notifier.ListChanged(household);
-        return Results.Ok(store.ListItems(household));
+        return Results.Ok(store.ListItems(body.Email, household, body.Pin));
     }
     catch (InvalidOperationException ex)
     {
@@ -266,11 +273,11 @@ app.MapPost("/api/households/{household}/clear", async (
     }
 });
 
-app.MapGet("/api/admin/users", (string? email, StoreFront store) =>
+app.MapGet("/api/admin/users", (string email, string household, string? pin, StoreFront store) =>
 {
     try
     {
-        return Results.Ok(store.ListUsers(email ?? ""));
+        return Results.Ok(store.ListUsers(email, household, pin));
     }
     catch (InvalidOperationException ex)
     {
@@ -278,11 +285,11 @@ app.MapGet("/api/admin/users", (string? email, StoreFront store) =>
     }
 });
 
-app.MapGet("/api/admin/directory", (string email, StoreFront store, ILogger<Program> log) =>
+app.MapGet("/api/admin/directory", (string email, string household, string? pin, StoreFront store, ILogger<Program> log) =>
 {
     try
     {
-        return Results.Ok(store.ListDirectory(email));
+        return Results.Ok(store.ListDirectory(email, household, pin));
     }
     catch (InvalidOperationException ex)
     {
@@ -295,14 +302,27 @@ app.MapGet("/api/admin/directory", (string email, StoreFront store, ILogger<Prog
     }
 });
 
-app.MapGet("/api/admin/households/{userId:guid}", (Guid userId, StoreFront store) =>
-    Results.Ok(store.HouseholdsForUser(userId)));
-
-app.MapGet("/api/members", (string email, string household, StoreFront store, ILogger<Program> log) =>
+app.MapGet("/api/admin/new-household-pin", (string email, string household, string? pin, StoreFront store) =>
 {
     try
     {
-        return Results.Ok(store.ListMembers(email, household));
+        return Results.Ok(new { pin = store.AdminDefaultPin(email, household, pin) });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+});
+
+app.MapGet("/api/admin/households/{userId:guid}", (Guid userId, StoreFront store) =>
+    Results.Ok(store.HouseholdsForUser(userId)));
+
+app.MapGet("/api/members", (string email, string household, string? pin, string? actorHousehold, StoreFront store, ILogger<Program> log) =>
+{
+    try
+    {
+        var from = string.IsNullOrWhiteSpace(actorHousehold) ? household : actorHousehold;
+        return Results.Ok(store.ListMembers(email, from, pin, household));
     }
     catch (InvalidOperationException ex)
     {
@@ -319,8 +339,9 @@ app.MapPost("/api/members", (MemberRequest body, StoreFront store, ILogger<Progr
 {
     try
     {
-        store.AddMember(body.ActorEmail, body.Household, body.Email, body.Nickname);
-        return Results.Ok(store.ListMembers(body.ActorEmail, body.Household));
+        var from = string.IsNullOrWhiteSpace(body.ActorHousehold) ? body.Household : body.ActorHousehold;
+        store.AddMember(body.ActorEmail, from, body.Pin, body.Household, body.Email, body.Nickname);
+        return Results.Ok(store.ListMembers(body.ActorEmail, from, body.Pin, body.Household));
     }
     catch (InvalidOperationException ex)
     {
@@ -337,8 +358,9 @@ app.MapPost("/api/members/remove", (MemberRemoveRequest body, StoreFront store, 
 {
     try
     {
-        store.RemoveMember(body.ActorEmail, body.Household, body.UserId);
-        return Results.Ok(store.ListMembers(body.ActorEmail, body.Household));
+        var from = string.IsNullOrWhiteSpace(body.ActorHousehold) ? body.Household : body.ActorHousehold;
+        store.RemoveMember(body.ActorEmail, from, body.Pin, body.Household, body.UserId);
+        return Results.Ok(store.ListMembers(body.ActorEmail, from, body.Pin, body.Household));
     }
     catch (InvalidOperationException ex)
     {
@@ -355,7 +377,7 @@ app.MapPost("/api/admin/households", (AdminHouseholdRequest body, StoreFront sto
 {
     try
     {
-        store.CreateHousehold(body.ActorEmail, body.Name, body.Motto, body.MemberEmail, body.MemberNickname);
+        store.CreateHousehold(body.ActorEmail, body.ActorHousehold ?? "", body.Pin, body.Name, body.Motto, body.MemberEmail, body.MemberNickname);
         return Results.Ok();
     }
     catch (InvalidOperationException ex)
@@ -373,7 +395,7 @@ app.MapPost("/api/admin/households/delete", (AdminDeleteHouseholdRequest body, S
 {
     try
     {
-        store.DeleteHousehold(body.ActorEmail, body.Name);
+        store.DeleteHousehold(body.ActorEmail, body.ActorHousehold ?? "", body.Pin, body.Name);
         return Results.Ok();
     }
     catch (InvalidOperationException ex)
@@ -391,7 +413,7 @@ app.MapPost("/api/admin/motto", (AdminMottoRequest body, StoreFront store, ILogg
 {
     try
     {
-        store.SetMotto(body.ActorEmail, body.Household, body.Motto);
+        store.SetMotto(body.ActorEmail, body.ActorHousehold ?? body.Household, body.Pin, body.Household, body.Motto);
         return Results.Ok();
     }
     catch (InvalidOperationException ex)
@@ -405,21 +427,41 @@ app.MapPost("/api/admin/motto", (AdminMottoRequest body, StoreFront store, ILogg
     }
 });
 
+app.MapPost("/api/admin/pin", (AdminPinRequest body, StoreFront store, ILogger<Program> log) =>
+{
+    try
+    {
+        store.SetPin(body.ActorEmail, body.ActorHousehold ?? body.Household, body.Pin, body.Household, body.NewPin);
+        return Results.Ok();
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "Could not save PIN.");
+        return Results.Problem("Could not save the PIN.", statusCode: 503);
+    }
+});
+
 app.MapHub<ListHub>("/hubs/list");
 app.Run();
 
-public sealed record SignInRequest(string Email, string Household);
+public sealed record SignInRequest(string Email, string Household, string? Pin);
 
-public sealed record AddItemRequest(string Email, string Household, string Text);
+public sealed record AddItemRequest(string Email, string Household, string? Pin, string Text);
 
-public sealed record BulkItemsRequest(string Email, string Household, List<FileItem> Items);
+public sealed record BulkItemsRequest(string Email, string Household, string? Pin, List<FileItem> Items);
 
-public sealed record MemberRequest(string ActorEmail, string Household, string Email, string Nickname);
+public sealed record MemberRequest(string ActorEmail, string? Pin, string? ActorHousehold, string Household, string Email, string Nickname);
 
-public sealed record MemberRemoveRequest(string ActorEmail, string Household, Guid UserId);
+public sealed record MemberRemoveRequest(string ActorEmail, string? Pin, string? ActorHousehold, string Household, Guid UserId);
 
-public sealed record AdminHouseholdRequest(string ActorEmail, string Name, string? Motto, string MemberEmail, string MemberNickname);
+public sealed record AdminHouseholdRequest(string ActorEmail, string? Pin, string? ActorHousehold, string Name, string? Motto, string MemberEmail, string MemberNickname);
 
-public sealed record AdminDeleteHouseholdRequest(string ActorEmail, string Name);
+public sealed record AdminDeleteHouseholdRequest(string ActorEmail, string? Pin, string? ActorHousehold, string Name);
 
-public sealed record AdminMottoRequest(string ActorEmail, string Household, string Motto);
+public sealed record AdminMottoRequest(string ActorEmail, string? Pin, string? ActorHousehold, string Household, string Motto);
+
+public sealed record AdminPinRequest(string ActorEmail, string? Pin, string? ActorHousehold, string Household, string NewPin);

@@ -9,38 +9,46 @@ public sealed class StoreFront
         _files = files;
     }
 
-    public WebSession SignIn(string email, string household) => _files.SignIn(email, household);
+    public WebSession SignIn(string email, string household, string? pin) =>
+        _files.SignIn(email, household, pin);
 
     public bool IsAppAdmin(string email) => _files.IsAppAdmin(email);
 
+    public string NewHouseholdPin => _files.NewHouseholdPin;
+
     public IReadOnlyList<HouseholdBrand> ListHouseholds() => _files.ListHouseholds();
 
-    public IReadOnlyList<ListItem> ListItems(string household) => _files.ListItems(household);
+    public IReadOnlyList<ListItem> ListItems(string email, string household, string? pin) =>
+        _files.ListItems(email, household, pin);
 
-    public void AddTextItem(string email, string household, string text) =>
-        _files.AddTextItem(email, household, text);
+    public void AddTextItem(string email, string household, string? pin, string text) =>
+        _files.AddTextItem(email, household, pin, text);
 
-    public void ToggleComplete(string email, string household, Guid itemId) =>
-        _files.CompleteItem(email, household, itemId);
+    public void ToggleComplete(string email, string household, string? pin, Guid itemId) =>
+        _files.CompleteItem(email, household, pin, itemId);
 
-    public void RemoveItem(string email, string household, Guid itemId) =>
-        _files.RemoveItem(email, household, itemId);
+    public void RemoveItem(string email, string household, string? pin, Guid itemId) =>
+        _files.RemoveItem(email, household, pin, itemId);
 
-    public int ClearCompleted(string email, string household) => _files.ClearAll(email, household);
+    public int ClearCompleted(string email, string household, string? pin) =>
+        _files.ClearAll(email, household, pin);
 
-    public int ClearAll(string email, string household) => _files.ClearAll(email, household);
+    public int ClearAll(string email, string household, string? pin) =>
+        _files.ClearAll(email, household, pin);
 
-    public void UpsertItems(string email, string household, IEnumerable<FileItem> items) =>
-        _files.UpsertItems(email, household, items);
+    public void UpsertItems(string email, string household, string? pin, IEnumerable<FileItem> items) =>
+        _files.UpsertItems(email, household, pin, items);
 
-    public IReadOnlyList<AdminUserDto> ListUsers(string actorEmail)
+    public IReadOnlyList<AdminUserDto> ListUsers(string actorEmail, string actorHousehold, string? pin)
     {
+        EnsureActor(actorEmail, actorHousehold, pin);
         RequireAppAdmin(actorEmail);
         return _files.ListUsers();
     }
 
-    public IReadOnlyList<HouseholdDirectoryDto> ListDirectory(string actorEmail)
+    public IReadOnlyList<HouseholdDirectoryDto> ListDirectory(string actorEmail, string actorHousehold, string? pin)
     {
+        EnsureActor(actorEmail, actorHousehold, pin);
         RequireAppAdmin(actorEmail);
         return _files.ListHouseholds()
             .Select(h => new HouseholdDirectoryDto(
@@ -52,55 +60,74 @@ public sealed class StoreFront
 
     public IReadOnlyList<HouseholdDto> HouseholdsForUser(Guid userId) => _files.HouseholdsForUser(userId);
 
-    public IReadOnlyList<MemberDto> ListMembers(string actorEmail, string household)
+    public IReadOnlyList<MemberDto> ListMembers(string actorEmail, string actorHousehold, string? pin, string household)
     {
+        EnsureActor(actorEmail, actorHousehold, pin);
         RequireHouseholdAccess(actorEmail, household);
         return _files.ListMembers(household);
     }
 
-    public void AddMember(string actorEmail, string household, string email, string nickname)
+    public void AddMember(string actorEmail, string actorHousehold, string? pin, string household, string email, string nickname)
     {
+        EnsureActor(actorEmail, actorHousehold, pin);
         RequireHouseholdAccess(actorEmail, household);
         _files.AddUser(email, nickname, household, nickname, isAppAdmin: false);
     }
 
-    public void RemoveMember(string actorEmail, string household, Guid userId)
+    public void RemoveMember(string actorEmail, string actorHousehold, string? pin, string household, Guid userId)
     {
+        EnsureActor(actorEmail, actorHousehold, pin);
         RequireHouseholdAccess(actorEmail, household);
         _files.RemoveFromHousehold(userId, household);
     }
 
-    public void CreateHousehold(string actorEmail, string name, string? motto, string memberEmail, string memberNickname)
+    public void CreateHousehold(string actorEmail, string actorHousehold, string? pin, string name, string? motto, string memberEmail, string memberNickname)
     {
-        RequireAppAdminOrEmpty(actorEmail);
+        if (_files.HasUsers())
+        {
+            EnsureActor(actorEmail, actorHousehold, pin);
+            RequireAppAdmin(actorEmail);
+        }
+
         _files.CreateHouseholdWithMember(name, motto, memberEmail, memberNickname);
     }
 
-    public void DeleteHousehold(string actorEmail, string name)
+    public void DeleteHousehold(string actorEmail, string actorHousehold, string? pin, string name)
     {
+        EnsureActor(actorEmail, actorHousehold, pin);
         RequireAppAdmin(actorEmail);
         _files.DeleteHousehold(name);
     }
 
-    public void SetMotto(string actorEmail, string household, string motto)
+    public void SetMotto(string actorEmail, string actorHousehold, string? pin, string household, string motto)
     {
+        EnsureActor(actorEmail, actorHousehold, pin);
         RequireHouseholdAccess(actorEmail, household);
         _files.SetMotto(household, motto);
     }
+
+    public void SetPin(string actorEmail, string actorHousehold, string? pin, string household, string newPin)
+    {
+        EnsureActor(actorEmail, actorHousehold, pin);
+        RequireAppAdmin(actorEmail);
+        _files.SetPin(household, newPin);
+    }
+
+    public string AdminDefaultPin(string actorEmail, string actorHousehold, string? pin)
+    {
+        EnsureActor(actorEmail, actorHousehold, pin);
+        RequireAppAdmin(actorEmail);
+        return NewHouseholdPin;
+    }
+
+    private void EnsureActor(string email, string household, string? pin) =>
+        _files.SignIn(email, household, pin);
 
     private void RequireAppAdmin(string email)
     {
         if (!_files.IsAppAdmin(email))
         {
             throw new InvalidOperationException("Only an app admin can do that.");
-        }
-    }
-
-    private void RequireAppAdminOrEmpty(string email)
-    {
-        if (_files.HasUsers() && !_files.IsAppAdmin(email))
-        {
-            throw new InvalidOperationException("Only an app admin can create a household.");
         }
     }
 

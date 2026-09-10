@@ -44,7 +44,10 @@ public partial class App : Application
         DispatcherUnhandledException += OnDispatcherUnhandledException;
 
         var session = _sessions.Load();
-        if (session is not null && session.UserId != Guid.Empty && !string.IsNullOrWhiteSpace(session.Email))
+        if (session is not null
+            && session.UserId != Guid.Empty
+            && !string.IsNullOrWhiteSpace(session.Email)
+            && !string.IsNullOrWhiteSpace(session.Pin))
         {
             ShowMain(session);
         }
@@ -79,6 +82,7 @@ public partial class App : Application
     {
         _api.LastEmail = session.Email;
         _api.LastHousehold = session.TenantName;
+        _api.LastPin = session.Pin;
 
         var mainVm = new MainViewModel(session, _captures, _excel, _sessions, _identity, _storageMode, _api);
         var main = new MainWindow(mainVm);

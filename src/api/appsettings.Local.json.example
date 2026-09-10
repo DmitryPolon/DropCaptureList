@@ -1,3 +1,6 @@
 {
-  "DataDirectory": ""
+  "DataDirectory": "",
+  "Household": {
+    "DefaultPin": ""
+  }
 }

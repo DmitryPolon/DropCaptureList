@@ -10,7 +10,8 @@ public sealed class LoginViewModel : ViewModelBase
     private readonly IIdentityService _identity;
     private string _email = string.Empty;
     private string _householdName = string.Empty;
-    private string _statusMessage = "Enter your email and household, then Continue.";
+    private string _pin = string.Empty;
+    private string _statusMessage = "Enter your email, household, and PIN, then Continue.";
     private bool _isBusy;
 
     public LoginViewModel(IIdentityService identity, UserSession? remembered)
@@ -18,7 +19,10 @@ public sealed class LoginViewModel : ViewModelBase
         _identity = identity;
         KnownHouseholds = new ObservableCollection<string>();
         ContinueCommand = new RelayCommand(Continue, () =>
-            !_isBusy && !string.IsNullOrWhiteSpace(Email) && !string.IsNullOrWhiteSpace(HouseholdName));
+            !_isBusy
+            && !string.IsNullOrWhiteSpace(Email)
+            && !string.IsNullOrWhiteSpace(HouseholdName)
+            && Pin.Trim().Length == 4);
 
         if (remembered is not null)
         {
@@ -45,6 +49,16 @@ public sealed class LoginViewModel : ViewModelBase
         set
         {
             SetProperty(ref _householdName, value);
+            ContinueCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string Pin
+    {
+        get => _pin;
+        set
+        {
+            SetProperty(ref _pin, value);
             ContinueCommand.RaiseCanExecuteChanged();
         }
     }
@@ -87,7 +101,7 @@ public sealed class LoginViewModel : ViewModelBase
         {
             var email = Email;
             var household = HouseholdName;
-            SignedInSession = await Task.Run(() => _identity.SignIn(email, household));
+            SignedInSession = await Task.Run(() => _identity.SignIn(email, household, Pin.Trim()));
             StatusMessage = string.Empty;
             SignedIn?.Invoke(this, EventArgs.Empty);
         }

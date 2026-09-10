@@ -31,6 +31,11 @@ public sealed class StorageModeClient
             return "This API build does not have household members yet (404). Deploy the current API, or set ApiBase in appsettings.Local.json to a local dotnet run of src/api.";
         }
 
+        if (statusCode == 404 && path is not null && path.StartsWith("/api/admin/pin", StringComparison.OrdinalIgnoreCase))
+        {
+            return "This API build does not have household PIN yet (404). Deploy the current API after setting Household__DefaultPin on the App Service.";
+        }
+
         if (detail.Length > 0)
         {
             return detail;

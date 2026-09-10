@@ -7,6 +7,8 @@ public sealed class UserSession
     public string Nickname { get; set; } = string.Empty;
     public Guid TenantId { get; set; }
     public string TenantName { get; set; } = string.Empty;
+    public string Pin { get; set; } = string.Empty;
+    public string? NewHouseholdPin { get; set; }
     public bool IsAppAdmin { get; set; }
 }
 

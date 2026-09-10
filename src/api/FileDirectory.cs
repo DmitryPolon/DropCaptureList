@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -22,6 +24,8 @@ public sealed class FileHousehold
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Motto { get; set; } = string.Empty;
+    public string PinSalt { get; set; } = string.Empty;
+    public string PinHash { get; set; } = string.Empty;
     public List<FileMember> Members { get; set; } = [];
     public List<FileItem> Items { get; set; } = [];
 }
@@ -50,14 +54,18 @@ public sealed class FileDirectory
     };
 
     private readonly string _root;
+    private readonly string _defaultPin;
     private readonly object _gate = new();
 
-    public FileDirectory(string dataDirectory)
+    public FileDirectory(string dataDirectory, string defaultPin)
     {
         _root = Path.Combine(dataDirectory, "households");
+        _defaultPin = HouseholdPin.RequireConfigured(defaultPin);
         Directory.CreateDirectory(dataDirectory);
         Directory.CreateDirectory(_root);
     }
+
+    public string NewHouseholdPin => _defaultPin;
 
     public bool HasUsers()
     {
@@ -67,7 +75,7 @@ public sealed class FileDirectory
         }
     }
 
-    public WebSession SignIn(string email, string household)
+    public WebSession SignIn(string email, string household, string? pin)
     {
         email = email.Trim();
         household = household.Trim();
@@ -111,6 +119,12 @@ public sealed class FileDirectory
             var member = house.Members.FirstOrDefault(m => m.UserId == user.Id)
                 ?? throw new InvalidOperationException(
                     "That email is registered, but not in this household. Use the household name from the list (not the nickname).");
+            EnsurePin(house);
+            if (!HouseholdPin.Matches(pin, house.PinSalt, house.PinHash))
+            {
+                throw new InvalidOperationException("Wrong PIN.");
+            }
+
             return new WebSession(user.Id, user.Email, member.Nickname, house.Name, house.Motto, HouseholdMark.Letter(house.Name));
         }
     }
@@ -132,6 +146,12 @@ public sealed class FileDirectory
                 .Select(h => new HouseholdBrand(h.Name, h.Motto, HouseholdMark.Letter(h.Name)))
                 .ToList();
         }
+    }
+
+    public IReadOnlyList<ListItem> ListItems(string email, string household, string? pin)
+    {
+        SignIn(email, household, pin);
+        return ListItems(household);
     }
 
     public IReadOnlyList<ListItem> ListItems(string household)
@@ -160,7 +180,7 @@ public sealed class FileDirectory
         }
     }
 
-    public void AddTextItem(string email, string household, string text)
+    public void AddTextItem(string email, string household, string? pin, string text)
     {
         text = text.Trim();
         if (string.IsNullOrWhiteSpace(text))
@@ -173,7 +193,7 @@ public sealed class FileDirectory
             throw new InvalidOperationException("Keep the task under 500 characters.");
         }
 
-        var session = SignIn(email, household);
+        var session = SignIn(email, household, pin);
         lock (_gate)
         {
             var house = RequireHousehold(household);
@@ -194,9 +214,9 @@ public sealed class FileDirectory
         }
     }
 
-    public void UpsertItems(string email, string household, IEnumerable<FileItem> incoming)
+    public void UpsertItems(string email, string household, string? pin, IEnumerable<FileItem> incoming)
     {
-        var session = SignIn(email, household);
+        var session = SignIn(email, household, pin);
         lock (_gate)
         {
             var house = RequireHousehold(household);
@@ -246,9 +266,9 @@ public sealed class FileDirectory
         }
     }
 
-    public void CompleteItem(string email, string household, Guid itemId)
+    public void CompleteItem(string email, string household, string? pin, Guid itemId)
     {
-        SignIn(email, household);
+        SignIn(email, household, pin);
         lock (_gate)
         {
             var house = RequireHousehold(household);
@@ -262,14 +282,14 @@ public sealed class FileDirectory
         }
     }
 
-    public void RemoveItem(string email, string household, Guid itemId)
+    public void RemoveItem(string email, string household, string? pin, Guid itemId)
     {
-        CompleteItem(email, household, itemId);
+        CompleteItem(email, household, pin, itemId);
     }
 
-    public int ClearAll(string email, string household)
+    public int ClearAll(string email, string household, string? pin)
     {
-        SignIn(email, household);
+        SignIn(email, household, pin);
         lock (_gate)
         {
             var house = RequireHousehold(household);
@@ -297,7 +317,15 @@ public sealed class FileDirectory
                 throw new InvalidOperationException("That household already exists.");
             }
 
-            SaveHousehold(new FileHousehold { Id = Guid.NewGuid(), Name = name, Motto = motto.Length <= 120 ? motto : motto[..120] });
+            var hashed = HouseholdPin.Create(_defaultPin);
+            SaveHousehold(new FileHousehold
+            {
+                Id = Guid.NewGuid(),
+                Name = name,
+                Motto = motto.Length <= 120 ? motto : motto[..120],
+                PinSalt = hashed.Salt,
+                PinHash = hashed.Hash
+            });
         }
     }
 
@@ -482,6 +510,31 @@ public sealed class FileDirectory
         }
     }
 
+    public void SetPin(string household, string pin)
+    {
+        lock (_gate)
+        {
+            var house = RequireHousehold(household);
+            var hashed = HouseholdPin.Create(pin);
+            house.PinSalt = hashed.Salt;
+            house.PinHash = hashed.Hash;
+            SaveHousehold(house);
+        }
+    }
+
+    private void EnsurePin(FileHousehold house)
+    {
+        if (!string.IsNullOrWhiteSpace(house.PinHash) && !string.IsNullOrWhiteSpace(house.PinSalt))
+        {
+            return;
+        }
+
+        var hashed = HouseholdPin.Create(_defaultPin);
+        house.PinSalt = hashed.Salt;
+        house.PinHash = hashed.Hash;
+        SaveHousehold(house);
+    }
+
     private FileUser? FindUser(string email)
     {
         return LoadUsers().FirstOrDefault(u =>
@@ -568,6 +621,63 @@ public sealed class FileDirectory
         var temp = path + ".tmp";
         File.WriteAllText(temp, json);
         File.Move(temp, path, overwrite: true);
+    }
+}
+
+internal static class HouseholdPin
+{
+    public static string RequireConfigured(string? pin)
+    {
+        pin = (pin ?? "").Trim();
+        if (pin.Length != 4 || pin.Any(c => c is < '0' or > '9'))
+        {
+            throw new InvalidOperationException(
+                "Set Household:DefaultPin (four digits) in gitignored appsettings.Local.json, or Household__DefaultPin on the App Service.");
+        }
+
+        return pin;
+    }
+
+    public static (string Salt, string Hash) Create(string pin)
+    {
+        pin = (pin ?? "").Trim();
+        if (pin.Length != 4 || pin.Any(c => c is < '0' or > '9'))
+        {
+            throw new InvalidOperationException("PIN must be four digits.");
+        }
+
+        var salt = RandomNumberGenerator.GetBytes(16);
+        return (Convert.ToBase64String(salt), Hash(salt, pin));
+    }
+
+    public static bool Matches(string? pin, string saltB64, string hashB64)
+    {
+        pin = (pin ?? "").Trim();
+        if (pin.Length != 4 || pin.Any(c => c is < '0' or > '9'))
+        {
+            return false;
+        }
+
+        try
+        {
+            var salt = Convert.FromBase64String(saltB64);
+            var expected = Convert.FromBase64String(hashB64);
+            var actual = Convert.FromBase64String(Hash(salt, pin));
+            return CryptographicOperations.FixedTimeEquals(expected, actual);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static string Hash(byte[] salt, string pin)
+    {
+        var pinBytes = Encoding.UTF8.GetBytes(pin);
+        var data = new byte[salt.Length + pinBytes.Length];
+        Buffer.BlockCopy(salt, 0, data, 0, salt.Length);
+        Buffer.BlockCopy(pinBytes, 0, data, salt.Length, pinBytes.Length);
+        return Convert.ToBase64String(SHA256.HashData(data));
     }
 }
 

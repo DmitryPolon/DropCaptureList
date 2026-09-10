@@ -25,13 +25,16 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
 
     public string? LastHousehold { get; set; }
 
-    public UserSession SignIn(string email, string household)
+    public string? LastPin { get; set; }
+
+    public UserSession SignIn(string email, string household, string? pin)
     {
-        var body = Post("/api/session", new { email, household });
+        var body = Post("/api/session", new { email, household, pin });
         using var doc = JsonDocument.Parse(body);
         var root = doc.RootElement;
         LastEmail = root.GetProperty("email").GetString();
         LastHousehold = root.GetProperty("household").GetString() ?? household;
+        LastPin = pin;
         var tenantId = Guid.Empty;
         var houses = HouseholdsForUser(root.TryGetProperty("userId", out var rawId) && rawId.ValueKind == JsonValueKind.String
             ? Guid.Parse(rawId.GetString()!)
@@ -49,6 +52,10 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
             Nickname = root.GetProperty("nickname").GetString() ?? "",
             TenantId = tenantId,
             TenantName = LastHousehold,
+            Pin = pin ?? "",
+            NewHouseholdPin = root.TryGetProperty("newHouseholdPin", out var initial) && initial.ValueKind == JsonValueKind.String
+                ? initial.GetString()
+                : null,
             IsAppAdmin = root.TryGetProperty("isAppAdmin", out var admin) && admin.GetBoolean()
         };
     }
@@ -67,7 +74,7 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
     public IReadOnlyList<LocalTenant> ListAllHouseholds()
     {
         var email = Uri.EscapeDataString(LastEmail ?? "");
-        var json = Get($"/api/admin/directory?email={email}");
+        var json = Get($"/api/admin/directory?email={email}&household={Uri.EscapeDataString(LastHousehold ?? "")}&pin={Uri.EscapeDataString(LastPin ?? "")}");
         return JsonSerializer.Deserialize<List<ApiDirectory>>(json, Json)?.Select(h => new LocalTenant
         {
             Name = h.Name,
@@ -86,7 +93,7 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
     public IReadOnlyList<AdminUserRow> ListUsers()
     {
         var email = Uri.EscapeDataString(LastEmail ?? "");
-        var json = Get($"/api/admin/users?email={email}");
+        var json = Get($"/api/admin/users?email={email}&household={Uri.EscapeDataString(LastHousehold ?? "")}&pin={Uri.EscapeDataString(LastPin ?? "")}");
         return JsonSerializer.Deserialize<List<ApiAdminUser>>(json, Json)?.Select(u => new AdminUserRow
         {
             UserId = u.UserId,
@@ -101,7 +108,7 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
     {
         var email = Uri.EscapeDataString(LastEmail ?? "");
         var house = Uri.EscapeDataString(household);
-        var json = Get($"/api/members?email={email}&household={house}");
+        var json = Get($"/api/members?email={email}&household={house}&pin={Uri.EscapeDataString(LastPin ?? "")}&actorHousehold={Uri.EscapeDataString(LastHousehold ?? "")}");
         return JsonSerializer.Deserialize<List<ApiMember>>(json, Json)?.Select(m => new MemberRow
         {
             UserId = m.UserId,
@@ -113,7 +120,7 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
 
     public void AddMember(string household, string email, string nickname)
     {
-        Post("/api/members", new { actorEmail = LastEmail, household, email, nickname });
+        Post("/api/members", new { actorEmail = LastEmail, pin = LastPin, actorHousehold = LastHousehold, household, email, nickname });
     }
 
     public void CreateHousehold(string name, string? motto, string memberEmail, string memberNickname)
@@ -121,6 +128,8 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
         Post("/api/admin/households", new
         {
             actorEmail = LastEmail,
+            pin = LastPin,
+            actorHousehold = LastHousehold,
             name,
             motto,
             memberEmail,
@@ -130,17 +139,34 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
 
     public void DeleteHousehold(string name)
     {
-        Post("/api/admin/households/delete", new { actorEmail = LastEmail, name });
+        Post("/api/admin/households/delete", new { actorEmail = LastEmail, pin = LastPin, actorHousehold = LastHousehold, name });
     }
 
     public void SetHouseholdMotto(string household, string motto)
     {
-        Post("/api/admin/motto", new { actorEmail = LastEmail, household, motto });
+        Post("/api/admin/motto", new { actorEmail = LastEmail, pin = LastPin, actorHousehold = LastHousehold, household, motto });
     }
 
     public void RemoveFromHousehold(Guid userId, string household)
     {
-        Post("/api/members/remove", new { actorEmail = LastEmail, household, userId });
+        Post("/api/members/remove", new { actorEmail = LastEmail, pin = LastPin, actorHousehold = LastHousehold, household, userId });
+    }
+
+    public void SetHouseholdPin(string household, string pin)
+    {
+        Post("/api/admin/pin", new { actorEmail = LastEmail, pin = LastPin, actorHousehold = LastHousehold, household, newPin = pin });
+        if (string.Equals(household, LastHousehold, StringComparison.OrdinalIgnoreCase))
+        {
+            LastPin = pin;
+        }
+    }
+
+    public string GetNewHouseholdPin()
+    {
+        var email = Uri.EscapeDataString(LastEmail ?? "");
+        var json = Get($"/api/admin/new-household-pin?email={email}&household={Uri.EscapeDataString(LastHousehold ?? "")}&pin={Uri.EscapeDataString(LastPin ?? "")}");
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.TryGetProperty("pin", out var pin) ? pin.GetString() ?? "" : "";
     }
 
     public IReadOnlyList<CapturedItem> GetItems(Guid tenantId)
@@ -196,7 +222,7 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
 
     public IReadOnlyList<CapturedItem> ListItems(string household)
     {
-        var json = Get($"/api/households/{Uri.EscapeDataString(household)}/items");
+        var json = Get($"/api/households/{Uri.EscapeDataString(household)}/items?email={Uri.EscapeDataString(LastEmail ?? "")}&pin={Uri.EscapeDataString(LastPin ?? "")}");
         return JsonSerializer.Deserialize<List<ApiItem>>(json, Json)?.Select(i => new CapturedItem
         {
             Id = i.Id,
@@ -219,6 +245,7 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
         {
             email,
             household,
+            pin = LastPin,
             items = items.Select(i => new
             {
                 id = i.Id,
@@ -240,13 +267,13 @@ public sealed class ApiBackend : IIdentityService, ICaptureService
     {
         foreach (var id in ids)
         {
-            Post($"/api/households/{Uri.EscapeDataString(household)}/items/{id}/remove", new { email, household });
+            Post($"/api/households/{Uri.EscapeDataString(household)}/items/{id}/remove", new { email, household, pin = LastPin });
         }
     }
 
     public int ClearList(string email, string household)
     {
-        var json = Post($"/api/households/{Uri.EscapeDataString(household)}/clear", new { email, household });
+        var json = Post($"/api/households/{Uri.EscapeDataString(household)}/clear", new { email, household, pin = LastPin });
         try
         {
             return JsonSerializer.Deserialize<List<ApiItem>>(json, Json)?.Count ?? 0;
