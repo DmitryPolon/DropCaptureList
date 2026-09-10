@@ -72,7 +72,7 @@ GitHub Actions:
 
 Secrets: `AZURE_STATIC_WEB_APPS_API_TOKEN`, `AZURE_WEBAPP_PUBLISH_PROFILE`, `VITE_API_BASE`.
 
-On the API App Service, set application setting `Household__DefaultPin` (four digits). The same value lives in gitignored `src/api/appsettings.Local.json` for local runs. An app admin sees that initial PIN in the Household panel after sign-in. It is not in the git repo.
+An app admin sees the initial household PIN in the Household panel after sign-in. Optionally set `Household__DefaultPin` on the App Service (and `Household:DefaultPin` in gitignored `src/api/appsettings.Local.json`) if you do not want the built-in fallback.
 
 The API does not keep a login session store. Each request sends **email + household + PIN**. The browser keeps `localStorage`; Windows keeps `session.bin` (DPAPI). The PIN is hashed (salt + SHA-256) in `household.json`; it is not stored as plain text on the server.
 

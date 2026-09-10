@@ -29,7 +29,7 @@ builder.Services.AddCors(options =>
 
 var dataDirectory = DataPaths.Resolve(builder.Configuration);
 var defaultPin = builder.Configuration["Household:DefaultPin"];
-builder.Services.AddSingleton(new FileDirectory(dataDirectory, defaultPin ?? ""));
+builder.Services.AddSingleton(new FileDirectory(dataDirectory, defaultPin));
 builder.Services.AddSingleton<StoreFront>();
 builder.Services.AddSingleton<ListNotifier>();
 

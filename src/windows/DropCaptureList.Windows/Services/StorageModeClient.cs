@@ -33,7 +33,7 @@ public sealed class StorageModeClient
 
         if (statusCode == 404 && path is not null && path.StartsWith("/api/admin/pin", StringComparison.OrdinalIgnoreCase))
         {
-            return "This API build does not have household PIN yet (404). Deploy the current API after setting Household__DefaultPin on the App Service.";
+            return "This API build does not have household PIN yet (404). Deploy the current API.";
         }
 
         if (detail.Length > 0)

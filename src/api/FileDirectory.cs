@@ -57,10 +57,10 @@ public sealed class FileDirectory
     private readonly string _defaultPin;
     private readonly object _gate = new();
 
-    public FileDirectory(string dataDirectory, string defaultPin)
+    public FileDirectory(string dataDirectory, string? defaultPin)
     {
         _root = Path.Combine(dataDirectory, "households");
-        _defaultPin = HouseholdPin.RequireConfigured(defaultPin);
+        _defaultPin = HouseholdPin.ResolveDefault(defaultPin);
         Directory.CreateDirectory(dataDirectory);
         Directory.CreateDirectory(_root);
     }
@@ -626,16 +626,15 @@ public sealed class FileDirectory
 
 internal static class HouseholdPin
 {
-    public static string RequireConfigured(string? pin)
+    public static string ResolveDefault(string? pin)
     {
         pin = (pin ?? "").Trim();
-        if (pin.Length != 4 || pin.Any(c => c is < '0' or > '9'))
+        if (pin.Length == 4 && pin.All(c => c is >= '0' and <= '9'))
         {
-            throw new InvalidOperationException(
-                "Set Household:DefaultPin (four digits) in gitignored appsettings.Local.json, or Household__DefaultPin on the App Service.");
+            return pin;
         }
 
-        return pin;
+        return new string('0', 4);
     }
 
     public static (string Salt, string Hash) Create(string pin)
